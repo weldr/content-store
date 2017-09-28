@@ -34,9 +34,9 @@ data ContentStore = ContentStore {
     csRoot :: FilePath
  }
 
-data ContentStoreError = ContentStoreConfig String
-                       | ContentStoreInvalid String
-                       | ContentStoreMissing
+data CsError = CsErrorConfig String
+             | CsErrorInvalid String
+             | CsErrorMissing
 
 --
 -- PRIVATE FUNCTIONS
@@ -81,17 +81,17 @@ storedObjectLocation = splitAt 2
 -- Check that a content store exists and contains everything it's
 -- supposed to.  This does not check the validity of all the contents.
 -- That would be a lot of duplicated effort.
-contentStoreValid :: (MonadError ContentStoreError m, MonadIO m) => FilePath -> m Bool
+contentStoreValid :: (MonadError CsError m, MonadIO m) => FilePath -> m Bool
 contentStoreValid fp = do
     unlessM (liftIO $ doesDirectoryExist fp) $
-        throwError ContentStoreMissing
+        throwError CsErrorMissing
 
     unlessM (liftIO $ doesFileExist $ fp </> "config") $
-        throwError $ ContentStoreInvalid "config"
+        throwError $ CsErrorInvalid "config"
 
     forM_ ["objects"] $ \subdir ->
         unlessM (liftIO $ doesDirectoryExist $ fp </> subdir) $
-            throwError $ ContentStoreInvalid subdir
+            throwError $ CsErrorInvalid subdir
 
     return True
 
@@ -103,7 +103,7 @@ contentStoreValid fp = do
 -- that could go wrong creating a store on disk.  Maybe we should
 -- thrown exceptions or do something besides just returning a
 -- Maybe.
-mkContentStore :: (MonadError ContentStoreError m, MonadIO m) => FilePath -> m ContentStore
+mkContentStore :: (MonadError CsError m, MonadIO m) => FilePath -> m ContentStore
 mkContentStore fp = do
     path <- liftIO $ canonicalizePath fp
 
@@ -125,13 +125,13 @@ mkContentStore fp = do
 -- handling questions still apply.  What happens if someone is
 -- screwing around with the directory at the same time this code
 -- is running?  Do we need to lock it somehow?
-openContentStore :: (MonadError ContentStoreError m, MonadIO m) => FilePath -> m ContentStore
+openContentStore :: (MonadError CsError m, MonadIO m) => FilePath -> m ContentStore
 openContentStore fp = do
     path <- liftIO $ canonicalizePath fp
 
     _ <- contentStoreValid path
     liftIO (readConfig (path </> "config")) >>= \case
-        Left e  -> throwError $ ContentStoreConfig (show e)
+        Left e  -> throwError $ CsErrorConfig (show e)
         Right c -> return ContentStore { csConfig=c,
                                          csRoot=path }
 
