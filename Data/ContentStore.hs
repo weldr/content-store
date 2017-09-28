@@ -19,6 +19,7 @@ import           Control.Monad.Except(MonadError, catchError, throwError)
 import           Control.Monad.IO.Class(MonadIO, liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Text as T
 import           System.Directory(canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist)
 import           System.FilePath((</>))
 
@@ -34,9 +35,11 @@ data ContentStore = ContentStore {
     csRoot :: FilePath
  }
 
-data CsError = CsErrorConfig String
+data CsError = CsErrorCollision String
+             | CsErrorConfig String
              | CsErrorInvalid String
              | CsErrorMissing
+             | CsErrorUnsupportedHash String
 
 --
 -- PRIVATE FUNCTIONS
@@ -154,24 +157,23 @@ fetchByteString cs digest = do
 
 -- Given an object as a ByteString, put it into the content store.
 -- Return the object's hash so it can be recorded elsewhere.
---
--- What happens if openContentStore has not been called first?
--- Is there any way of ensuring that is done?  There's also all
--- the standard IO errors that could happen here.  How do we want
--- that to be handled?
-storeByteString :: ContentStore -> BS.ByteString -> IO (Maybe ObjectDigest)
-storeByteString cs bs =
-    case hashByteString (confHash . csConfig $ cs) bs of
-        Nothing -> return Nothing
+storeByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> BS.ByteString -> m ObjectDigest
+storeByteString cs bs = do
+    let algo = confHash . csConfig $ cs
+
+    case hashByteString algo bs of
+        Nothing     -> throwError $ CsErrorUnsupportedHash (T.unpack algo)
         Just digest -> do
             let (subdir, filename) = storedObjectDestination digest
+                path               = objectSubdirectoryPath cs subdir </> filename
 
-            ensureObjectSubdirectory cs subdir
+            liftIO $ ensureObjectSubdirectory cs subdir
 
-            -- FIXME:  What to do if the file already exists?
-            BS.writeFile (objectSubdirectoryPath cs subdir </> filename)
-                         bs
-            return $ Just digest
+            ifM (liftIO $ doesFileExist path)
+                (throwError $ CsErrorCollision path)
+                (liftIO $ BS.writeFile path bs)
+
+            return digest
 
 --
 -- LAZY BYTE STRING INTERFACE
@@ -188,15 +190,20 @@ fetchLazyByteString cs digest = do
         (return Nothing)
 
 -- Like storeByteString, but uses lazy ByteStrings instead.
-storeLazyByteString :: ContentStore -> LBS.ByteString -> IO (Maybe ObjectDigest)
-storeLazyByteString cs lbs =
-    case hashLazyByteString (confHash . csConfig $ cs) lbs of
-        Nothing -> return Nothing
+storeLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> LBS.ByteString -> m ObjectDigest
+storeLazyByteString cs lbs = do
+    let algo = confHash . csConfig $ cs
+
+    case hashLazyByteString algo lbs of
+        Nothing     -> throwError $ CsErrorUnsupportedHash (T.unpack algo)
         Just digest -> do
             let (subdir, filename) = storedObjectDestination digest
+                path               = objectSubdirectoryPath cs subdir </> filename
 
-            ensureObjectSubdirectory cs subdir
+            liftIO $ ensureObjectSubdirectory cs subdir
 
-            LBS.writeFile (objectSubdirectoryPath cs subdir </> filename)
-                          lbs
-            return $ Just digest
+            ifM (liftIO $ doesFileExist path)
+                (throwError $ CsErrorCollision path)
+                (liftIO $ LBS.writeFile path lbs)
+
+            return digest
