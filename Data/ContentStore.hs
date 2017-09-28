@@ -41,6 +41,9 @@ data CsError = CsErrorCollision String
              | CsErrorMissing
              | CsErrorUnsupportedHash String
 
+csSubdirs :: [String]
+csSubdirs = ["objects"]
+
 --
 -- PRIVATE FUNCTIONS
 --
@@ -92,7 +95,7 @@ contentStoreValid fp = do
     unlessM (liftIO $ doesFileExist $ fp </> "config") $
         throwError $ CsErrorInvalid "config"
 
-    forM_ ["objects"] $ \subdir ->
+    forM_ csSubdirs $ \subdir ->
         unlessM (liftIO $ doesDirectoryExist $ fp </> subdir) $
             throwError $ CsErrorInvalid subdir
 
@@ -115,7 +118,7 @@ mkContentStore fp = do
     else do
         -- Create the required subdirectories.
         mapM_ (\d -> liftIO $ createDirectoryIfMissing True (path </> d))
-              ["objects"]
+              csSubdirs
 
         -- Write a config file.
         liftIO $ writeConfig (path </> "config") defaultConfig
