@@ -1,8 +1,10 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Data.ContentStore(ContentStore,
+                         contentStoreValid,
                          fetchByteString,
                          fetchLazyByteString,
                          mkContentStore,
@@ -11,7 +13,10 @@ module Data.ContentStore(ContentStore,
                          storeLazyByteString)
  where
 
-import           Control.Conditional((<&&>), ifM)
+import           Control.Conditional((<&&>), ifM, unlessM)
+import           Control.Monad(forM_)
+import           Control.Monad.Except(MonadError, throwError)
+import           Control.Monad.IO.Class(MonadIO, liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import           System.Directory(canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist)
@@ -28,6 +33,9 @@ data ContentStore = ContentStore {
     csConfig :: Config,
     csRoot :: FilePath
  }
+
+data ContentStoreError = ContentStoreInvalid String
+                       | ContentStoreMissing
 
 --
 -- PRIVATE FUNCTIONS
@@ -68,6 +76,23 @@ storedObjectLocation = splitAt 2
 --
 -- CONTENT STORE MANAGEMENT
 --
+
+-- Check that a content store exists and contains everything it's
+-- supposed to.  This does not check the validity of all the contents.
+-- That would be a lot of duplicated effort.
+contentStoreValid :: (MonadError ContentStoreError m, MonadIO m) => FilePath -> m Bool
+contentStoreValid fp = do
+    unlessM (liftIO $ doesDirectoryExist fp) $
+        throwError ContentStoreMissing
+
+    unlessM (liftIO $ doesFileExist $ fp </> "config") $
+        throwError $ ContentStoreInvalid "config"
+
+    forM_ ["objects"] $ \subdir ->
+        unlessM (liftIO $ doesDirectoryExist $ fp </> subdir) $
+            throwError $ ContentStoreInvalid subdir
+
+    return True
 
 -- Create a new content store on disk, rooted at the path given.
 -- Return the ContentStore record.
