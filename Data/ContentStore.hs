@@ -15,7 +15,7 @@ module Data.ContentStore(ContentStore,
 
 import           Control.Conditional(ifM, unlessM)
 import           Control.Monad(forM_)
-import           Control.Monad.Except(MonadError, throwError)
+import           Control.Monad.Except(MonadError, catchError, throwError)
 import           Control.Monad.IO.Class(MonadIO, liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -98,9 +98,7 @@ contentStoreValid fp = do
 -- Create a new content store on disk, rooted at the path given.
 -- Return the ContentStore record.
 --
--- Lots to think about in this function.  What happens if the
--- content store already exists?  Do we just pass through to
--- openContentStore or do we fail?  What does error handling
+-- Lots to think about in this function.  What does error handling
 -- look like here (and everywhere else)?  There's lots of things
 -- that could go wrong creating a store on disk.  Maybe we should
 -- thrown exceptions or do something besides just returning a
@@ -109,14 +107,17 @@ mkContentStore :: (MonadError ContentStoreError m, MonadIO m) => FilePath -> m C
 mkContentStore fp = do
     path <- liftIO $ canonicalizePath fp
 
-    -- Create the required subdirectories.
-    mapM_ (\d -> liftIO $ createDirectoryIfMissing True (path </> d))
-          ["objects"]
+    csExists <- contentStoreValid path `catchError` \_ -> return False
+    if csExists then openContentStore path
+    else do
+        -- Create the required subdirectories.
+        mapM_ (\d -> liftIO $ createDirectoryIfMissing True (path </> d))
+              ["objects"]
 
-    -- Write a config file.
-    liftIO $ writeConfig (path </> "config") defaultConfig
+        -- Write a config file.
+        liftIO $ writeConfig (path </> "config") defaultConfig
 
-    openContentStore path
+        openContentStore path
 
 -- Return an already existing content store.
 --
