@@ -13,7 +13,7 @@ module Data.ContentStore(ContentStore,
                          storeLazyByteString)
  where
 
-import           Control.Conditional((<&&>), ifM, unlessM)
+import           Control.Conditional(ifM, unlessM)
 import           Control.Monad(forM_)
 import           Control.Monad.Except(MonadError, throwError)
 import           Control.Monad.IO.Class(MonadIO, liftIO)
@@ -34,7 +34,8 @@ data ContentStore = ContentStore {
     csRoot :: FilePath
  }
 
-data ContentStoreError = ContentStoreInvalid String
+data ContentStoreError = ContentStoreConfig String
+                       | ContentStoreInvalid String
                        | ContentStoreMissing
 
 --
@@ -104,37 +105,34 @@ contentStoreValid fp = do
 -- that could go wrong creating a store on disk.  Maybe we should
 -- thrown exceptions or do something besides just returning a
 -- Maybe.
-mkContentStore :: FilePath -> IO (Maybe ContentStore)
+mkContentStore :: (MonadError ContentStoreError m, MonadIO m) => FilePath -> m ContentStore
 mkContentStore fp = do
-    path <- canonicalizePath fp
+    path <- liftIO $ canonicalizePath fp
 
     -- Create the required subdirectories.
-    mapM_ (\d -> createDirectoryIfMissing True (path </> d))
+    mapM_ (\d -> liftIO $ createDirectoryIfMissing True (path </> d))
           ["objects"]
 
     -- Write a config file.
-    writeConfig (path </> "config") defaultConfig
+    liftIO $ writeConfig (path </> "config") defaultConfig
 
     openContentStore path
 
 -- Return an already existing content store.
 --
 -- There's a lot to think about here, too.  All the same error
--- handling questions still apply.  There should probably also
--- be a validContentStore function that checks if everything is
--- basically okay.  What happens if someone is screwing around
--- with the directory at the same time this code is running?  Do
--- we need to lock it somehow?
-openContentStore :: FilePath -> IO (Maybe ContentStore)
+-- handling questions still apply.  What happens if someone is
+-- screwing around with the directory at the same time this code
+-- is running?  Do we need to lock it somehow?
+openContentStore :: (MonadError ContentStoreError m, MonadIO m) => FilePath -> m ContentStore
 openContentStore fp = do
-    path <- canonicalizePath fp
+    path <- liftIO $ canonicalizePath fp
 
-    ifM (doesDirectoryExist path <&&> doesFileExist (path </> "config"))
-        (readConfig (path </> "config") >>= \case
-             Left _  -> return Nothing
-             Right c -> return $ Just ContentStore { csConfig=c,
-                                                     csRoot=path })
-        (return Nothing)
+    _ <- contentStoreValid path
+    liftIO (readConfig (path </> "config")) >>= \case
+        Left e  -> throwError $ ContentStoreConfig (show e)
+        Right c -> return ContentStore { csConfig=c,
+                                         csRoot=path }
 
 --
 -- STRICT BYTE STRING INTERFACE
