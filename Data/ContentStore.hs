@@ -17,7 +17,7 @@ module Data.ContentStore(ContentStore,
                          storeLazyByteStringC)
  where
 
-import           Conduit(Conduit, await, yield)
+import           Conduit(Conduit, awaitForever, yield)
 import           Control.Conditional(ifM, unlessM)
 import           Control.Monad(forM_)
 import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
@@ -196,14 +196,13 @@ storeByteString cs object = do
 -- at a time, like when importing an RPM or other package.  If an object with the
 -- same hash already exists in the content store, this is a duplicate.  Simply
 -- return the hash of the already stored object.
-storeByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit BS.ByteString m (Maybe ObjectDigest)
+storeByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit BS.ByteString m ObjectDigest
 storeByteStringC cs = do
     let algo = confHash . csConfig $ cs
 
-    await >>= \case
-        Nothing -> yield Nothing
-        Just bs -> do result <- liftIO $ runExceptT $ doStore cs algo hashByteString BS.writeFile bs
-                      either throwError (yield . Just) result
+    awaitForever $ \bs -> do
+        result <- liftIO $ runExceptT $ doStore cs algo hashByteString BS.writeFile bs
+        either throwError yield result
 
 --
 -- LAZY BYTE STRING INTERFACE
@@ -226,11 +225,10 @@ storeLazyByteString cs object = do
     doStore cs algo hashLazyByteString LBS.writeFile object
 
 -- Like storeByteStringC, but uses lazy ByteStrings instead.
-storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit LBS.ByteString m (Maybe ObjectDigest)
+storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit LBS.ByteString m ObjectDigest
 storeLazyByteStringC cs = do
     let algo = confHash . csConfig $ cs
 
-    await >>= \case
-        Nothing -> yield Nothing
-        Just bs -> do result <- liftIO $ runExceptT $ doStore cs algo hashLazyByteString LBS.writeFile bs
-                      either throwError (yield . Just) result
+    awaitForever $ \bs -> do
+        result <- liftIO $ runExceptT $ doStore cs algo hashLazyByteString LBS.writeFile bs
+        either throwError yield result
