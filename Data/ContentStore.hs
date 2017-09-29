@@ -10,9 +10,12 @@ module Data.ContentStore(ContentStore,
                          mkContentStore,
                          openContentStore,
                          storeByteString,
-                         storeLazyByteString)
+                         storeByteStringC,
+                         storeLazyByteString,
+                         storeLazyByteStringC)
  where
 
+import           Conduit(Conduit, await, yield)
 import           Control.Conditional(ifM, unlessM)
 import           Control.Monad(forM_)
 import           Control.Monad.Except(MonadError, catchError, throwError)
@@ -78,6 +81,21 @@ storedObjectDestination digest = splitAt 2 (show digest)
 -- content store.
 storedObjectLocation :: String -> (String, String)
 storedObjectLocation = splitAt 2
+
+doStore :: (MonadError CsError m, MonadIO m) => ContentStore -> T.Text -> (T.Text -> a -> Maybe ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> m ObjectDigest
+doStore cs algo hasher writer object = case hasher algo object of
+    Nothing     -> throwError $ CsErrorUnsupportedHash (T.unpack algo)
+    Just digest -> do
+        let (subdir, filename) = storedObjectDestination digest
+            path               = objectSubdirectoryPath cs subdir </> filename
+
+        liftIO $ ensureObjectSubdirectory cs subdir
+
+        ifM (liftIO $ doesFileExist path)
+            (throwError $ CsErrorCollision path)
+            (liftIO $ writer path object)
+
+        return digest
 
 --
 -- CONTENT STORE MANAGEMENT
@@ -160,22 +178,17 @@ fetchByteString cs digest = do
 -- Given an object as a ByteString, put it into the content store.
 -- Return the object's hash so it can be recorded elsewhere.
 storeByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> BS.ByteString -> m ObjectDigest
-storeByteString cs bs = do
+storeByteString cs object = do
+    let algo = confHash . csConfig $ cs
+    doStore cs algo hashByteString BS.writeFile object
+
+storeByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit BS.ByteString m (Maybe ObjectDigest)
+storeByteStringC cs = do
     let algo = confHash . csConfig $ cs
 
-    case hashByteString algo bs of
-        Nothing     -> throwError $ CsErrorUnsupportedHash (T.unpack algo)
-        Just digest -> do
-            let (subdir, filename) = storedObjectDestination digest
-                path               = objectSubdirectoryPath cs subdir </> filename
-
-            liftIO $ ensureObjectSubdirectory cs subdir
-
-            ifM (liftIO $ doesFileExist path)
-                (throwError $ CsErrorCollision path)
-                (liftIO $ BS.writeFile path bs)
-
-            return digest
+    await >>= \case
+        Nothing -> yield Nothing
+        Just bs -> doStore cs algo hashByteString BS.writeFile bs >>= yield . Just
 
 --
 -- LAZY BYTE STRING INTERFACE
@@ -193,19 +206,14 @@ fetchLazyByteString cs digest = do
 
 -- Like storeByteString, but uses lazy ByteStrings instead.
 storeLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> LBS.ByteString -> m ObjectDigest
-storeLazyByteString cs lbs = do
+storeLazyByteString cs object = do
+    let algo = confHash . csConfig $ cs
+    doStore cs algo hashLazyByteString LBS.writeFile object
+
+storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit LBS.ByteString m (Maybe ObjectDigest)
+storeLazyByteStringC cs = do
     let algo = confHash . csConfig $ cs
 
-    case hashLazyByteString algo lbs of
-        Nothing     -> throwError $ CsErrorUnsupportedHash (T.unpack algo)
-        Just digest -> do
-            let (subdir, filename) = storedObjectDestination digest
-                path               = objectSubdirectoryPath cs subdir </> filename
-
-            liftIO $ ensureObjectSubdirectory cs subdir
-
-            ifM (liftIO $ doesFileExist path)
-                (throwError $ CsErrorCollision path)
-                (liftIO $ LBS.writeFile path lbs)
-
-            return digest
+    await >>= \case
+        Nothing -> yield Nothing
+        Just bs -> doStore cs algo hashLazyByteString LBS.writeFile bs >>= yield . Just
