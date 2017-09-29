@@ -21,6 +21,10 @@ import qualified Data.Text as T
 data ObjectDigest = ObjectSHA256 (Digest SHA256)
                   | ObjectSHA512 (Digest SHA512)
 
+instance Show ObjectDigest where
+    show (ObjectSHA256 d) = show d
+    show (ObjectSHA512 d) = show d
+
 hashByteString :: T.Text -> BS.ByteString -> Maybe ObjectDigest
 hashByteString algo bs = case algo of
     "SHA256" -> Just $ ObjectSHA256 (hash bs :: Digest SHA256)
