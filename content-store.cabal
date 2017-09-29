@@ -14,7 +14,6 @@ library
   build-depends:     aeson,
                      base >= 4.9 && < 4.10,
                      bytestring,
-                     codec-rpm >= 0.2.0,
                      cond,
                      conduit-combinators,
                      cryptonite,
