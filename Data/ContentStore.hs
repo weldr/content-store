@@ -87,6 +87,15 @@ storedObjectDestination digest = splitAt 2 (show digest)
 storedObjectLocation :: String -> (String, String)
 storedObjectLocation = splitAt 2
 
+doFetch :: ContentStore -> String -> (FilePath -> IO a) -> IO (Maybe a)
+doFetch cs digest reader = do
+    let (subdir, filename) = storedObjectLocation digest
+        path               = objectSubdirectoryPath cs subdir </> filename
+
+    ifM (doesFileExist path)
+        (Just <$> reader path)
+        (return Nothing)
+
 doStore :: ContentStore -> T.Text -> (T.Text -> a -> Maybe ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> CsMonad ObjectDigest
 doStore cs algo hasher writer object = case hasher algo object of
     Nothing     -> throwError $ CsErrorUnsupportedHash (T.unpack algo)
@@ -173,13 +182,7 @@ openContentStore fp = do
 -- it's coming from the mddb which doesn't know about various digest
 -- algorithms.
 fetchByteString :: ContentStore -> String -> IO (Maybe BS.ByteString)
-fetchByteString cs digest = do
-    let (subdir, filename) = storedObjectLocation digest
-        path               = objectSubdirectoryPath cs subdir </> filename
-
-    ifM (doesFileExist path)
-        (Just <$> BS.readFile path)
-        (return Nothing)
+fetchByteString cs digest = doFetch cs digest BS.readFile
 
 -- Given an object as a ByteString, put it into the content store.  Return the
 -- object's hash so it can be recorded elsewhere.  If an object with the same
@@ -209,13 +212,7 @@ storeByteStringC cs = do
 
 -- Like fetchByteString, but uses lazy ByteStrings instead.
 fetchLazyByteString :: ContentStore -> String -> IO (Maybe LBS.ByteString)
-fetchLazyByteString cs digest = do
-    let (subdir, filename) = storedObjectLocation digest
-        path               = objectSubdirectoryPath cs subdir </> filename
-
-    ifM (doesFileExist path)
-        (Just <$> LBS.readFile path)
-        (return Nothing)
+fetchLazyByteString cs digest = doFetch cs digest LBS.readFile
 
 -- Like storeByteString, but uses lazy ByteStrings instead.
 storeLazyByteString :: ContentStore -> LBS.ByteString -> CsMonad ObjectDigest
