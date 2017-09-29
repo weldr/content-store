@@ -97,9 +97,10 @@ doStore cs algo hasher writer object = case hasher algo object of
 
         liftIO $ ensureObjectSubdirectory cs subdir
 
-        ifM (liftIO $ doesFileExist path)
-            (throwError $ CsErrorCollision path)
-            (liftIO $ writer path object)
+        -- Only store the object if it does not already exist in the content store.
+        -- If it's already there, just return the digest.
+        unlessM (liftIO $ doesFileExist path) $
+            liftIO $ writer path object
 
         return digest
 
@@ -181,8 +182,10 @@ fetchByteString cs digest = do
         (Just <$> BS.readFile path)
         (return Nothing)
 
--- Given an object as a ByteString, put it into the content store.
--- Return the object's hash so it can be recorded elsewhere.
+-- Given an object as a ByteString, put it into the content store.  Return the
+-- object's hash so it can be recorded elsewhere.  If an object with the same
+-- hash already exists in the content store, this is a duplicate.  Simply
+-- return the hash of the already stored object.
 storeByteString :: ContentStore -> BS.ByteString -> CsMonad ObjectDigest
 storeByteString cs object = do
     let algo = confHash . csConfig $ cs
