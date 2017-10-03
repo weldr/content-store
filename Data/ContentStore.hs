@@ -4,7 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Data.ContentStore(ContentStore,
-                         CsError,
+                         CsError(..),
                          CsMonad,
                          contentStoreValid,
                          fetchByteString,
