@@ -17,11 +17,13 @@ module Data.ContentStore(ContentStore,
                          storeLazyByteStringC)
  where
 
-import           Conduit(Conduit, awaitForever, yield)
+import           Conduit(Conduit, awaitForever)
 import           Control.Conditional(ifM, unlessM)
 import           Control.Monad(forM_)
-import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
-import           Control.Monad.IO.Class(MonadIO, liftIO)
+import           Control.Monad.Except(ExceptT, catchError, throwError)
+import           Control.Monad.IO.Class(liftIO)
+import           Control.Monad.Trans.Class(lift)
+import           Control.Monad.Trans.Resource(ResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
@@ -47,7 +49,7 @@ data CsError = CsErrorCollision String
              | CsErrorUnsupportedHash String
  deriving (Eq, Show)
 
-type CsMonad = ExceptT CsError IO
+type CsMonad = ResourceT (ExceptT CsError IO)
 
 csSubdirs :: [String]
 csSubdirs = ["objects"]
@@ -199,13 +201,12 @@ storeByteString cs object = do
 -- at a time, like when importing an RPM or other package.  If an object with the
 -- same hash already exists in the content store, this is a duplicate.  Simply
 -- return the hash of the already stored object.
-storeByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit BS.ByteString m ObjectDigest
+storeByteStringC :: ContentStore -> Conduit BS.ByteString CsMonad ObjectDigest
 storeByteStringC cs = do
     let algo = confHash . csConfig $ cs
 
-    awaitForever $ \bs -> do
-        result <- liftIO $ runExceptT $ doStore cs algo hashByteString BS.writeFile bs
-        either throwError yield result
+    awaitForever $ \bs ->
+        lift $ doStore cs algo hashByteString BS.writeFile bs
 
 --
 -- LAZY BYTE STRING INTERFACE
@@ -222,10 +223,9 @@ storeLazyByteString cs object = do
     doStore cs algo hashLazyByteString LBS.writeFile object
 
 -- Like storeByteStringC, but uses lazy ByteStrings instead.
-storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit LBS.ByteString m ObjectDigest
+storeLazyByteStringC :: ContentStore -> Conduit LBS.ByteString CsMonad ObjectDigest
 storeLazyByteStringC cs = do
     let algo = confHash . csConfig $ cs
 
-    awaitForever $ \bs -> do
-        result <- liftIO $ runExceptT $ doStore cs algo hashLazyByteString LBS.writeFile bs
-        either throwError yield result
+    awaitForever $ \bs ->
+        lift $ doStore cs algo hashLazyByteString LBS.writeFile bs
