@@ -67,8 +67,7 @@ objectSubdirectoryPath ContentStore{..} subdir =
 -- This function is used when objects are on the way into the
 -- content store.
 storedObjectDestination :: ObjectDigest -> (String, String)
-storedObjectDestination (ObjectSHA256 digest) = splitAt 2 (show digest)
-storedObjectDestination (ObjectSHA512 digest) = splitAt 2 (show digest)
+storedObjectDestination digest = splitAt 2 (show digest)
 
 -- Where in the content store is an object stored?  This function
 -- takes the digest of the object that we got from somewhere outside
