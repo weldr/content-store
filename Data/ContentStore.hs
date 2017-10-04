@@ -6,6 +6,7 @@
 module Data.ContentStore(ContentStore,
                          CsError(..),
                          CsMonad,
+                         runCsMonad,
                          contentStoreValid,
                          fetchByteString,
                          fetchLazyByteString,
@@ -20,10 +21,10 @@ module Data.ContentStore(ContentStore,
 import           Conduit(Conduit, awaitForever)
 import           Control.Conditional(ifM, unlessM)
 import           Control.Monad(forM_)
-import           Control.Monad.Except(ExceptT, catchError, throwError)
+import           Control.Monad.Except(ExceptT, catchError, runExceptT, throwError)
 import           Control.Monad.IO.Class(liftIO)
 import           Control.Monad.Trans.Class(lift)
-import           Control.Monad.Trans.Resource(ResourceT)
+import           Control.Monad.Trans.Resource(ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
@@ -50,6 +51,9 @@ data CsError = CsErrorCollision String
  deriving (Eq, Show)
 
 type CsMonad = ResourceT (ExceptT CsError IO)
+
+runCsMonad :: CsMonad a -> IO (Either CsError a)
+runCsMonad x = runExceptT $ runResourceT x
 
 csSubdirs :: [String]
 csSubdirs = ["objects"]
