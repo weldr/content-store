@@ -20,7 +20,7 @@ module Data.ContentStore(ContentStore,
  where
 
 import           Conduit((.|), Conduit, awaitForever, runConduit, sinkList, sourceDirectoryDeep, yield)
-import           Control.Conditional(ifM, unlessM)
+import           Control.Conditional(unlessM)
 import           Control.Monad(forM, forM_)
 import           Control.Monad.Except(ExceptT, catchError, runExceptT, throwError)
 import           Control.Monad.IO.Class(liftIO)
@@ -44,11 +44,12 @@ data ContentStore = ContentStore {
     csRoot :: FilePath
  }
 
-data CsError = CsErrorCollision String
-             | CsErrorConfig String
-             | CsErrorInvalid String
-             | CsErrorMissing
-             | CsErrorUnsupportedHash String
+data CsError = CsErrorCollision String              -- An object with this digest already exists
+             | CsErrorConfig String                 -- A parse error occurred reading the config file
+             | CsErrorInvalid String                -- The repo is invalid (probably, missing something)
+             | CsErrorMissing                       -- The repo does not exist at all
+             | CsErrorNoSuchObject String           -- No such object exists in the content store
+             | CsErrorUnsupportedHash String        -- An unsupported hashing algorithm was used
  deriving (Eq, Show)
 
 type CsMonad = ResourceT (ExceptT CsError IO)
@@ -94,14 +95,15 @@ storedObjectDestination digest = splitAt 2 (show digest)
 storedObjectLocation :: String -> (String, String)
 storedObjectLocation = splitAt 2
 
-doFetch :: ContentStore -> String -> (FilePath -> IO a) -> IO (Maybe a)
+doFetch :: ContentStore -> String -> (FilePath -> IO a) -> CsMonad a
 doFetch cs digest reader = do
     let (subdir, filename) = storedObjectLocation digest
         path               = objectSubdirectoryPath cs subdir </> filename
 
-    ifM (doesFileExist path)
-        (Just <$> reader path)
-        (return Nothing)
+    exists <- liftIO $ doesFileExist path
+    if exists
+    then liftIO $ reader path
+    else throwError (CsErrorNoSuchObject digest)
 
 doStore :: ContentStore -> T.Text -> (T.Text -> a -> Maybe ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> CsMonad ObjectDigest
 doStore cs algo hasher writer object = case hasher algo object of
@@ -188,7 +190,7 @@ openContentStore fp = do
 -- a ByteString.  Here, the hash is a string because it is assumed
 -- it's coming from the mddb which doesn't know about various digest
 -- algorithms.
-fetchByteString :: ContentStore -> String -> IO (Maybe BS.ByteString)
+fetchByteString :: ContentStore -> String -> CsMonad BS.ByteString
 fetchByteString cs digest = doFetch cs digest BS.readFile
 
 -- Given an object as a ByteString, put it into the content store.  Return the
@@ -218,7 +220,7 @@ storeByteStringC cs = do
 --
 
 -- Like fetchByteString, but uses lazy ByteStrings instead.
-fetchLazyByteString :: ContentStore -> String -> IO (Maybe LBS.ByteString)
+fetchLazyByteString :: ContentStore -> String -> CsMonad LBS.ByteString
 fetchLazyByteString cs digest = doFetch cs digest LBS.readFile
 
 -- Like storeByteString, but uses lazy ByteStrings instead.
