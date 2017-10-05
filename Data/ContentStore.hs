@@ -20,7 +20,7 @@ module Data.ContentStore(ContentStore,
  where
 
 import           Conduit((.|), Conduit, awaitForever, runConduit, sinkList, sourceDirectoryDeep, yield)
-import           Control.Conditional(unlessM)
+import           Control.Conditional(ifM, unlessM)
 import           Control.Monad(forM, forM_)
 import           Control.Monad.Except(ExceptT, catchError, runExceptT, throwError)
 import           Control.Monad.IO.Class(liftIO)
@@ -95,15 +95,16 @@ storedObjectDestination digest = splitAt 2 (show digest)
 storedObjectLocation :: String -> (String, String)
 storedObjectLocation = splitAt 2
 
-doFetch :: ContentStore -> String -> (FilePath -> IO a) -> CsMonad a
-doFetch cs digest reader = do
+-- Given a content store and a digest, try to find the file containing
+-- that object.  This does not read the object off the disk.
+findObject :: ContentStore -> String -> IO (Maybe FilePath)
+findObject cs digest = do
     let (subdir, filename) = storedObjectLocation digest
         path               = objectSubdirectoryPath cs subdir </> filename
 
-    exists <- liftIO $ doesFileExist path
-    if exists
-    then liftIO $ reader path
-    else throwError (CsErrorNoSuchObject digest)
+    ifM (doesFileExist path)
+        (return $ Just path)
+        (return Nothing)
 
 doStore :: ContentStore -> T.Text -> (T.Text -> a -> Maybe ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> CsMonad ObjectDigest
 doStore cs algo hasher writer object = case hasher algo object of
@@ -191,7 +192,12 @@ openContentStore fp = do
 -- it's coming from the mddb which doesn't know about various digest
 -- algorithms.
 fetchByteString :: ContentStore -> String -> CsMonad BS.ByteString
-fetchByteString cs digest = doFetch cs digest BS.readFile
+fetchByteString cs digest = do
+    result <- liftIO $ findObject cs digest
+
+    case result of
+        Nothing   -> throwError (CsErrorNoSuchObject digest)
+        Just path -> liftIO $ BS.readFile path
 
 -- Given an object as a ByteString, put it into the content store.  Return the
 -- object's hash so it can be recorded elsewhere.  If an object with the same
@@ -221,7 +227,12 @@ storeByteStringC cs = do
 
 -- Like fetchByteString, but uses lazy ByteStrings instead.
 fetchLazyByteString :: ContentStore -> String -> CsMonad LBS.ByteString
-fetchLazyByteString cs digest = doFetch cs digest LBS.readFile
+fetchLazyByteString cs digest = do
+    result <- liftIO $ findObject cs digest
+
+    case result of
+        Nothing   -> throwError (CsErrorNoSuchObject digest)
+        Just path -> liftIO $ LBS.readFile path
 
 -- Like storeByteString, but uses lazy ByteStrings instead.
 storeLazyByteString :: ContentStore -> LBS.ByteString -> CsMonad ObjectDigest
