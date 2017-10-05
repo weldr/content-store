@@ -14,13 +14,14 @@ module Data.ContentStore(ContentStore,
                          openContentStore,
                          storeByteString,
                          storeByteStringC,
+                         storeDirectory,
                          storeLazyByteString,
                          storeLazyByteStringC)
  where
 
-import           Conduit(Conduit, awaitForever, yield)
+import           Conduit((.|), Conduit, awaitForever, runConduit, sinkList, sourceDirectoryDeep, yield)
 import           Control.Conditional(ifM, unlessM)
-import           Control.Monad(forM_)
+import           Control.Monad(forM, forM_)
 import           Control.Monad.Except(ExceptT, catchError, runExceptT, throwError)
 import           Control.Monad.IO.Class(liftIO)
 import           Control.Monad.Trans.Class(lift)
@@ -234,3 +235,17 @@ storeLazyByteStringC cs = do
     awaitForever $ \bs -> do
         digest <- lift $ doStore cs algo hashLazyByteString LBS.writeFile bs
         yield digest
+
+--
+-- DIRECTORY INTERFACE
+--
+
+storeDirectory :: ContentStore -> FilePath -> CsMonad [(FilePath, ObjectDigest)]
+storeDirectory cs fp = do
+    let algo = confHash . csConfig $ cs
+
+    entries <- runConduit $ sourceDirectoryDeep False fp .| sinkList
+    forM entries $ \entry -> do
+        object <- liftIO $ BS.readFile entry
+        digest <- doStore cs algo hashByteString BS.writeFile object
+        return (entry, digest)

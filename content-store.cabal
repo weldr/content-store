@@ -17,6 +17,7 @@ library
                      cond,
                      conduit >= 1.0.11,
                      conduit-combinators,
+                     conduit-extra >= 1.1.0,
                      cryptonite,
                      directory,
                      filepath,
