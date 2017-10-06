@@ -44,7 +44,8 @@ data ContentStore = ContentStore {
     csRoot :: FilePath
  }
 
-data CsError = CsErrorCollision String              -- An object with this digest already exists
+data CsError = CsError String                       -- miscellaneous error
+             | CsErrorCollision String              -- An object with this digest already exists
              | CsErrorConfig String                 -- A parse error occurred reading the config file
              | CsErrorInvalid String                -- The repo is invalid (probably, missing something)
              | CsErrorMissing                       -- The repo does not exist at all
