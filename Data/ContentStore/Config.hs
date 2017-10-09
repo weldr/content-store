@@ -32,14 +32,14 @@ data Config = Config {
 
 instance FromJSON Config where
     parseJSON = withObject "Config" $ \v ->
-        Config <$> v .:? "hash" .!= "SHA256"
+        Config <$> v .:? "hash" .!= "BLAKE2b256"
 
 instance ToJSON Config where
     toJSON Config{..} = object [ "hash" .= toJSON confHash ]
 
 defaultConfig :: Config
 defaultConfig =
-    Config { confHash = "SHA256" }
+    Config { confHash = "BLAKE2b256" }
 
 readConfig :: FilePath -> IO (Either T.Text Config)
 readConfig path = do
