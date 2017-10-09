@@ -110,4 +110,10 @@ toHex = T.unpack . decodeUtf8 . convertToBase Base16
 getDigestAlgorithm :: T.Text -> Maybe DigestAlgorithm
 getDigestAlgorithm "SHA256"     = Just $ DigestAlgorithm SHA256
 getDigestAlgorithm "SHA512"     = Just $ DigestAlgorithm SHA512
+getDigestAlgorithm "BLAKE2"     = Just $ DigestAlgorithm Blake2b_512
+getDigestAlgorithm "BLAKE2b"    = Just $ DigestAlgorithm Blake2b_512
+getDigestAlgorithm "BLAKE2b512" = Just $ DigestAlgorithm Blake2b_512
+getDigestAlgorithm "BLAKE2b256" = Just $ DigestAlgorithm Blake2b_256
+getDigestAlgorithm "BLAKE2s"    = Just $ DigestAlgorithm Blake2s_256
+getDigestAlgorithm "BLAKE2s256" = Just $ DigestAlgorithm Blake2s_256
 getDigestAlgorithm _            = Nothing
