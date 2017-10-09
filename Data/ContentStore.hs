@@ -36,12 +36,11 @@ import           Control.Monad.Trans.Control(MonadBaseControl(..))
 import           Control.Monad.Trans.Resource(MonadResource, MonadThrow, ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.Text as T
 import           System.Directory(canonicalizePath, copyFile, createDirectoryIfMissing, doesDirectoryExist, doesFileExist)
 import           System.FilePath((</>))
 
 import Data.ContentStore.Config(Config(..), defaultConfig, readConfig, writeConfig)
-import Data.ContentStore.Digest(ObjectDigest(..), hashByteString, hashLazyByteString)
+import Data.ContentStore.Digest
 
 -- A ContentStore is its config file data and the base directory
 -- where it is stored on disk.  This data type is opaque on purpose.
@@ -49,7 +48,8 @@ import Data.ContentStore.Digest(ObjectDigest(..), hashByteString, hashLazyByteSt
 -- a content store, just that it exists.
 data ContentStore = ContentStore {
     csConfig :: Config,
-    csRoot :: FilePath
+    csRoot :: FilePath,
+    csHash :: DigestAlgorithm
  }
 
 data CsError = CsError String                       -- miscellaneous error
@@ -98,7 +98,7 @@ objectSubdirectoryPath ContentStore{..} subdir =
 -- This function is used when objects are on the way into the
 -- content store.
 storedObjectDestination :: ObjectDigest -> (String, String)
-storedObjectDestination digest = splitAt 2 (show digest)
+storedObjectDestination = storedObjectLocation . toHex
 
 -- Where in the content store is an object stored?  This function
 -- takes the digest of the object that we got from somewhere outside
@@ -112,19 +112,25 @@ storedObjectLocation = splitAt 2
 
 -- Given a content store and a digest, try to find the file containing
 -- that object.  This does not read the object off the disk.
-findObject :: ContentStore -> String -> IO (Maybe FilePath)
+findObject :: ContentStore -> ObjectDigest -> IO (Maybe FilePath)
 findObject cs digest = do
-    let (subdir, filename) = storedObjectLocation digest
+    let (subdir, filename) = storedObjectDestination digest
         path               = objectSubdirectoryPath cs subdir </> filename
 
     ifM (doesFileExist path)
         (return $ Just path)
         (return Nothing)
 
-doStore :: (MonadError CsError m, MonadIO m) => ContentStore -> T.Text -> (T.Text -> a -> Maybe ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> m ObjectDigest
-doStore cs algo hasher writer object = case hasher algo object of
-    Nothing     -> throwError $ CsErrorUnsupportedHash (T.unpack algo)
-    Just digest -> do
+doFetch :: (MonadError CsError m, MonadIO m) => ContentStore -> (FilePath -> IO a) -> ObjectDigest -> m a
+doFetch cs reader digest = do
+    rv <- liftIO $ findObject cs digest
+    case rv of
+        Nothing   -> throwError $ CsErrorNoSuchObject (toHex digest)
+        Just path -> liftIO $ reader path
+
+doStore :: (MonadError CsError m, MonadIO m) => ContentStore -> (a -> ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> m ObjectDigest
+doStore cs hasher writer object = do
+        let digest             = hasher object
         let (subdir, filename) = storedObjectDestination digest
             path               = objectSubdirectoryPath cs subdir </> filename
 
@@ -191,35 +197,33 @@ mkContentStore fp = do
 openContentStore :: (MonadError CsError m, MonadIO m) => FilePath -> m ContentStore
 openContentStore fp = do
     path <- liftIO $ canonicalizePath fp
-
     _ <- contentStoreValid path
-    liftIO (readConfig (path </> "config")) >>= \case
+    rv <- liftIO $ readConfig (path </> "config")
+    conf <- case rv of
         Left e  -> throwError $ CsErrorConfig (show e)
-        Right c -> return ContentStore { csConfig=c,
-                                         csRoot=path }
+        Right c -> return c
+    let algo = confHash conf
+    case getDigestAlgorithm algo of
+        Nothing -> throwError $ CsErrorUnsupportedHash (show algo)
+        Just da -> return ContentStore { csRoot=path, csConfig=conf, csHash=da }
 
 --
 -- STRICT BYTE STRING INTERFACE
 --
 
--- Given the hash to an object in the content store, load it into
--- a ByteString.  Here, the hash is a string because it is assumed
--- it's coming from the mddb which doesn't know about various digest
--- algorithms.
-fetchByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> String -> m BS.ByteString
-fetchByteString cs digest =
-    liftIO (findObject cs digest) >>= \case
-        Nothing   -> throwError (CsErrorNoSuchObject digest)
-        Just path -> liftIO $ BS.readFile path
+-- Given an ObjectDigest for an object in the content store, load it into
+-- a ByteString. Note that you'll probably need to use fromByteString to
+-- produce an ObjectDigest from whatever text or binary representation
+-- you've got from the user/mddb/etc.
+fetchByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> ObjectDigest -> m BS.ByteString
+fetchByteString cs = doFetch cs BS.readFile
 
 -- Given an object as a ByteString, put it into the content store.  Return the
 -- object's hash so it can be recorded elsewhere.  If an object with the same
 -- hash already exists in the content store, this is a duplicate.  Simply
 -- return the hash of the already stored object.
 storeByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> BS.ByteString -> m ObjectDigest
-storeByteString cs object = do
-    let algo = confHash . csConfig $ cs
-    doStore cs algo hashByteString BS.writeFile object
+storeByteString cs = doStore cs (digestByteString $ csHash cs) BS.writeFile
 
 -- Given a Conduit of ByteStrings, store each one into the content store and put
 -- the hash of each into the Conduit.  This is useful for storing many objects
@@ -227,38 +231,27 @@ storeByteString cs object = do
 -- same hash already exists in the content store, this is a duplicate.  Simply
 -- return the hash of the already stored object.
 storeByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit BS.ByteString m ObjectDigest
-storeByteStringC cs = do
-    let algo = confHash . csConfig $ cs
-
-    awaitForever $ \bs -> do
-        digest <- lift $ doStore cs algo hashByteString BS.writeFile bs
-        yield digest
+storeByteStringC cs = awaitForever $ \bs -> do
+    digest <- lift $ storeByteString cs bs
+    yield digest
 
 --
 -- LAZY BYTE STRING INTERFACE
 --
 
 -- Like fetchByteString, but uses lazy ByteStrings instead.
-fetchLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> String -> m LBS.ByteString
-fetchLazyByteString cs digest =
-    liftIO (findObject cs digest) >>= \case
-        Nothing   -> throwError (CsErrorNoSuchObject digest)
-        Just path -> liftIO $ LBS.readFile path
+fetchLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> ObjectDigest -> m LBS.ByteString
+fetchLazyByteString cs = doFetch cs LBS.readFile
 
 -- Like storeByteString, but uses lazy ByteStrings instead.
 storeLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> LBS.ByteString -> m ObjectDigest
-storeLazyByteString cs object = do
-    let algo = confHash . csConfig $ cs
-    doStore cs algo hashLazyByteString LBS.writeFile object
+storeLazyByteString cs = doStore cs (digestLazyByteString $ csHash cs) LBS.writeFile
 
 -- Like storeByteStringC, but uses lazy ByteStrings instead.
 storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit LBS.ByteString m ObjectDigest
-storeLazyByteStringC cs = do
-    let algo = confHash . csConfig $ cs
-
-    awaitForever $ \bs -> do
-        digest <- lift $ doStore cs algo hashLazyByteString LBS.writeFile bs
-        yield digest
+storeLazyByteStringC cs = awaitForever $ \bs -> do
+    digest <- lift $ storeLazyByteString cs bs
+    yield digest
 
 --
 -- DIRECTORY INTERFACE
@@ -266,22 +259,22 @@ storeLazyByteStringC cs = do
 
 storeDirectory :: (MonadResource m, MonadError CsError m, MonadIO m) => ContentStore -> FilePath -> m [(FilePath, ObjectDigest)]
 storeDirectory cs fp = do
-    let algo = confHash . csConfig $ cs
+    let hasher = digestByteString $ csHash cs
 
     entries <- runConduit $ sourceDirectoryDeep False fp .| sinkList
     forM entries $ \entry -> do
         object <- liftIO $ BS.readFile entry
-        digest <- doStore cs algo hashByteString BS.writeFile object
+        digest <- doStore cs hasher BS.writeFile object
         return (entry, digest)
 
 --
 -- FILE INTERFACE
 --
 
-fetchFile :: ContentStore -> String -> FilePath -> CsMonad ()
+fetchFile :: ContentStore -> ObjectDigest -> FilePath -> CsMonad ()
 fetchFile cs digest dest =
     liftIO (findObject cs digest) >>= \case
-        Nothing   -> throwError (CsErrorNoSuchObject digest)
+        Nothing   -> throwError $ CsErrorNoSuchObject (toHex digest)
         Just path -> liftIO $ copyFile path dest
 
 storeFile :: ContentStore -> FilePath -> CsMonad ObjectDigest
