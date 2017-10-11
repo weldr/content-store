@@ -125,7 +125,7 @@ findObject cs digest = do
         (return $ Just path)
         (return Nothing)
 
-doStore :: ContentStore -> T.Text -> (T.Text -> a -> Maybe ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> CsMonad ObjectDigest
+doStore :: (MonadError CsError m, MonadIO m) => ContentStore -> T.Text -> (T.Text -> a -> Maybe ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> m ObjectDigest
 doStore cs algo hasher writer object = case hasher algo object of
     Nothing     -> throwError $ CsErrorUnsupportedHash (T.unpack algo)
     Just digest -> do
@@ -148,7 +148,7 @@ doStore cs algo hasher writer object = case hasher algo object of
 -- Check that a content store exists and contains everything it's
 -- supposed to.  This does not check the validity of all the contents.
 -- That would be a lot of duplicated effort.
-contentStoreValid :: FilePath -> CsMonad Bool
+contentStoreValid :: (MonadError CsError m, MonadIO m) => FilePath -> m Bool
 contentStoreValid fp = do
     unlessM (liftIO $ doesDirectoryExist fp) $
         throwError CsErrorMissing
@@ -170,7 +170,7 @@ contentStoreValid fp = do
 -- that could go wrong creating a store on disk.  Maybe we should
 -- thrown exceptions or do something besides just returning a
 -- Maybe.
-mkContentStore :: FilePath -> CsMonad ContentStore
+mkContentStore :: (MonadError CsError m, MonadIO m) => FilePath -> m ContentStore
 mkContentStore fp = do
     path <- liftIO $ canonicalizePath fp
 
@@ -192,7 +192,7 @@ mkContentStore fp = do
 -- handling questions still apply.  What happens if someone is
 -- screwing around with the directory at the same time this code
 -- is running?  Do we need to lock it somehow?
-openContentStore :: FilePath -> CsMonad ContentStore
+openContentStore :: (MonadError CsError m, MonadIO m) => FilePath -> m ContentStore
 openContentStore fp = do
     path <- liftIO $ canonicalizePath fp
 
@@ -210,7 +210,7 @@ openContentStore fp = do
 -- a ByteString.  Here, the hash is a string because it is assumed
 -- it's coming from the mddb which doesn't know about various digest
 -- algorithms.
-fetchByteString :: ContentStore -> String -> CsMonad BS.ByteString
+fetchByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> String -> m BS.ByteString
 fetchByteString cs digest =
     liftIO (findObject cs digest) >>= \case
         Nothing   -> throwError (CsErrorNoSuchObject digest)
@@ -220,7 +220,7 @@ fetchByteString cs digest =
 -- object's hash so it can be recorded elsewhere.  If an object with the same
 -- hash already exists in the content store, this is a duplicate.  Simply
 -- return the hash of the already stored object.
-storeByteString :: ContentStore -> BS.ByteString -> CsMonad ObjectDigest
+storeByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> BS.ByteString -> m ObjectDigest
 storeByteString cs object = do
     let algo = confHash . csConfig $ cs
     doStore cs algo hashByteString BS.writeFile object
@@ -230,7 +230,7 @@ storeByteString cs object = do
 -- at a time, like when importing an RPM or other package.  If an object with the
 -- same hash already exists in the content store, this is a duplicate.  Simply
 -- return the hash of the already stored object.
-storeByteStringC :: ContentStore -> Conduit BS.ByteString CsMonad ObjectDigest
+storeByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit BS.ByteString m ObjectDigest
 storeByteStringC cs = do
     let algo = confHash . csConfig $ cs
 
@@ -243,20 +243,20 @@ storeByteStringC cs = do
 --
 
 -- Like fetchByteString, but uses lazy ByteStrings instead.
-fetchLazyByteString :: ContentStore -> String -> CsMonad LBS.ByteString
+fetchLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> String -> m LBS.ByteString
 fetchLazyByteString cs digest =
     liftIO (findObject cs digest) >>= \case
         Nothing   -> throwError (CsErrorNoSuchObject digest)
         Just path -> liftIO $ LBS.readFile path
 
 -- Like storeByteString, but uses lazy ByteStrings instead.
-storeLazyByteString :: ContentStore -> LBS.ByteString -> CsMonad ObjectDigest
+storeLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> LBS.ByteString -> m ObjectDigest
 storeLazyByteString cs object = do
     let algo = confHash . csConfig $ cs
     doStore cs algo hashLazyByteString LBS.writeFile object
 
 -- Like storeByteStringC, but uses lazy ByteStrings instead.
-storeLazyByteStringC :: ContentStore -> Conduit LBS.ByteString CsMonad ObjectDigest
+storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit LBS.ByteString m ObjectDigest
 storeLazyByteStringC cs = do
     let algo = confHash . csConfig $ cs
 
@@ -268,7 +268,7 @@ storeLazyByteStringC cs = do
 -- DIRECTORY INTERFACE
 --
 
-storeDirectory :: ContentStore -> FilePath -> CsMonad [(FilePath, ObjectDigest)]
+storeDirectory :: (MonadResource m, MonadError CsError m, MonadIO m) => ContentStore -> FilePath -> m [(FilePath, ObjectDigest)]
 storeDirectory cs fp = do
     let algo = confHash . csConfig $ cs
 
