@@ -9,12 +9,14 @@ module Data.ContentStore(ContentStore,
                          runCsMonad,
                          contentStoreValid,
                          fetchByteString,
+                         fetchFile,
                          fetchLazyByteString,
                          mkContentStore,
                          openContentStore,
                          storeByteString,
                          storeByteStringC,
                          storeDirectory,
+                         storeFile,
                          storeLazyByteString,
                          storeLazyByteStringC)
  where
@@ -29,7 +31,7 @@ import           Control.Monad.Trans.Resource(ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
-import           System.Directory(canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist)
+import           System.Directory(canonicalizePath, copyFile, createDirectoryIfMissing, doesDirectoryExist, doesFileExist)
 import           System.FilePath((</>))
 
 import Data.ContentStore.Config(Config(..), defaultConfig, readConfig, writeConfig)
@@ -263,3 +265,20 @@ storeDirectory cs fp = do
         object <- liftIO $ BS.readFile entry
         digest <- doStore cs algo hashByteString BS.writeFile object
         return (entry, digest)
+
+--
+-- FILE INTERFACE
+--
+
+fetchFile :: ContentStore -> String -> FilePath -> CsMonad ()
+fetchFile cs digest dest = do
+    result <- liftIO $ findObject cs digest
+
+    case result of
+        Nothing   -> throwError (CsErrorNoSuchObject digest)
+        Just path -> liftIO $ copyFile path dest
+
+storeFile :: ContentStore -> FilePath -> CsMonad ObjectDigest
+storeFile cs fp = do
+    lbs <- liftIO $ LBS.readFile fp
+    storeLazyByteString cs lbs
