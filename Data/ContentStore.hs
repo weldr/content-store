@@ -195,10 +195,8 @@ openContentStore fp = do
 -- it's coming from the mddb which doesn't know about various digest
 -- algorithms.
 fetchByteString :: ContentStore -> String -> CsMonad BS.ByteString
-fetchByteString cs digest = do
-    result <- liftIO $ findObject cs digest
-
-    case result of
+fetchByteString cs digest =
+    liftIO (findObject cs digest) >>= \case
         Nothing   -> throwError (CsErrorNoSuchObject digest)
         Just path -> liftIO $ BS.readFile path
 
@@ -230,10 +228,8 @@ storeByteStringC cs = do
 
 -- Like fetchByteString, but uses lazy ByteStrings instead.
 fetchLazyByteString :: ContentStore -> String -> CsMonad LBS.ByteString
-fetchLazyByteString cs digest = do
-    result <- liftIO $ findObject cs digest
-
-    case result of
+fetchLazyByteString cs digest =
+    liftIO (findObject cs digest) >>= \case
         Nothing   -> throwError (CsErrorNoSuchObject digest)
         Just path -> liftIO $ LBS.readFile path
 
@@ -271,10 +267,8 @@ storeDirectory cs fp = do
 --
 
 fetchFile :: ContentStore -> String -> FilePath -> CsMonad ()
-fetchFile cs digest dest = do
-    result <- liftIO $ findObject cs digest
-
-    case result of
+fetchFile cs digest dest =
+    liftIO (findObject cs digest) >>= \case
         Nothing   -> throwError (CsErrorNoSuchObject digest)
         Just path -> liftIO $ copyFile path dest
 
