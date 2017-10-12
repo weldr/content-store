@@ -22,10 +22,12 @@ library
                      directory,
                      filepath,
                      htoml,
+                     monad-control,
                      mtl,
                      resourcet,
                      text,
-                     transformers
+                     transformers,
+                     transformers-base
 
   default-language:  Haskell2010
   ghc-options:       -Wall

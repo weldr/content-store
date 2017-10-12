@@ -1,7 +1,11 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Data.ContentStore(ContentStore,
                          CsError(..),
@@ -24,10 +28,12 @@ module Data.ContentStore(ContentStore,
 import           Conduit((.|), Conduit, awaitForever, runConduit, sinkList, sourceDirectoryDeep, yield)
 import           Control.Conditional(ifM, unlessM)
 import           Control.Monad(forM, forM_)
-import           Control.Monad.Except(ExceptT, catchError, runExceptT, throwError)
-import           Control.Monad.IO.Class(liftIO)
+import           Control.Monad.Base(MonadBase(..))
+import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
+import           Control.Monad.IO.Class(MonadIO, liftIO)
 import           Control.Monad.Trans.Class(lift)
-import           Control.Monad.Trans.Resource(ResourceT, runResourceT)
+import           Control.Monad.Trans.Control(MonadBaseControl(..))
+import           Control.Monad.Trans.Resource(MonadResource, MonadThrow, ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
@@ -55,10 +61,20 @@ data CsError = CsError String                       -- miscellaneous error
              | CsErrorUnsupportedHash String        -- An unsupported hashing algorithm was used
  deriving (Eq, Show)
 
-type CsMonad = ResourceT (ExceptT CsError IO)
+newtype CsMonad a = CsMonad { getCsMonad :: ResourceT (ExceptT CsError IO) a }
+ deriving (Applicative, Functor, Monad, MonadBase IO, MonadIO, MonadResource, MonadThrow)
+
+instance MonadError CsError CsMonad where
+    catchError = catchError
+    throwError = throwError
+
+instance MonadBaseControl IO CsMonad where
+    type StM CsMonad a = StM (ResourceT (ExceptT CsError IO)) a
+    liftBaseWith f = CsMonad $ liftBaseWith $ \r -> f (r . getCsMonad)
+    restoreM = CsMonad . restoreM
 
 runCsMonad :: CsMonad a -> IO (Either CsError a)
-runCsMonad x = runExceptT $ runResourceT x
+runCsMonad x = runExceptT $ runResourceT $ getCsMonad x
 
 csSubdirs :: [String]
 csSubdirs = ["objects"]
