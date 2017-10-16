@@ -62,11 +62,7 @@ data CsError = CsError String                       -- miscellaneous error
  deriving (Eq, Show)
 
 newtype CsMonad a = CsMonad { getCsMonad :: ResourceT (ExceptT CsError IO) a }
- deriving (Applicative, Functor, Monad, MonadBase IO, MonadIO, MonadResource, MonadThrow)
-
-instance MonadError CsError CsMonad where
-    catchError = catchError
-    throwError = throwError
+ deriving (Applicative, Functor, Monad, MonadBase IO, MonadError CsError, MonadIO, MonadResource, MonadThrow)
 
 instance MonadBaseControl IO CsMonad where
     type StM CsMonad a = StM (ResourceT (ExceptT CsError IO)) a
