@@ -29,7 +29,7 @@ module Data.ContentStore(ContentStore,
 
 import           Conduit((.|), Conduit, awaitForever, runConduit, sinkLazy, sinkList, sourceDirectoryDeep, sourceFile, yield)
 import           Control.Conditional(ifM, unlessM)
-import           Control.Monad((>=>), forM, forM_)
+import           Control.Monad((>=>), forM, forM_, void)
 import           Control.Monad.Base(MonadBase(..))
 import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
 import           Control.Monad.IO.Class(MonadIO, liftIO)
@@ -193,7 +193,7 @@ openContentStore :: (MonadError CsError m, MonadIO m) => FilePath -> m ContentSt
 openContentStore fp = do
     path <- liftIO $ canonicalizePath fp
 
-    _ <- contentStoreValid path
+    void $ contentStoreValid path
 
     conf <- liftIO (readConfig $ path </> "config") >>= \case
         Left e  -> throwError $ CsErrorConfig (show e)
