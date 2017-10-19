@@ -112,20 +112,14 @@ storedObjectLocation = splitAt 2
 
 -- Given a content store and a digest, try to find the file containing
 -- that object.  This does not read the object off the disk.
-findObject :: ContentStore -> ObjectDigest -> IO (Maybe FilePath)
+findObject :: (MonadError CsError m, MonadIO m) => ContentStore -> ObjectDigest -> m FilePath
 findObject cs digest = do
     let (subdir, filename) = storedObjectDestination digest
         path               = objectSubdirectoryPath cs subdir </> filename
 
-    ifM (doesFileExist path)
-        (return $ Just path)
-        (return Nothing)
-
-doFetch :: (MonadError CsError m, MonadIO m) => ContentStore -> (FilePath -> IO a) -> ObjectDigest -> m a
-doFetch cs reader digest =
-    liftIO (findObject cs digest) >>= \case
-        Nothing   -> throwError $ CsErrorNoSuchObject (toHex digest)
-        Just path -> liftIO $ reader path
+    ifM (liftIO $ doesFileExist path)
+        (return path)
+        (throwError $ CsErrorNoSuchObject $ toHex digest)
 
 doStore :: (MonadError CsError m, MonadIO m) => ContentStore -> (a -> ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> m ObjectDigest
 doStore cs hasher writer object = do
@@ -218,7 +212,7 @@ openContentStore fp = do
 -- produce an ObjectDigest from whatever text or binary representation
 -- you've got from the user/mddb/etc.
 fetchByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> ObjectDigest -> m BS.ByteString
-fetchByteString cs = doFetch cs BS.readFile
+fetchByteString cs digest = findObject cs digest >>= liftIO . BS.readFile
 
 -- Given an object as a ByteString, put it into the content store.  Return the
 -- object's hash so it can be recorded elsewhere.  If an object with the same
@@ -243,7 +237,7 @@ storeByteStringC cs = awaitForever $ \bs -> do
 
 -- Like fetchByteString, but uses lazy ByteStrings instead.
 fetchLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> ObjectDigest -> m LBS.ByteString
-fetchLazyByteString cs = doFetch cs LBS.readFile
+fetchLazyByteString cs digest = findObject cs digest >>= liftIO . LBS.readFile
 
 -- Like storeByteString, but uses lazy ByteStrings instead.
 storeLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> LBS.ByteString -> m ObjectDigest
@@ -274,10 +268,7 @@ storeDirectory cs fp = do
 --
 
 fetchFile :: ContentStore -> ObjectDigest -> FilePath -> CsMonad ()
-fetchFile cs digest dest =
-    liftIO (findObject cs digest) >>= \case
-        Nothing   -> throwError $ CsErrorNoSuchObject (toHex digest)
-        Just path -> liftIO $ copyFile path dest
+fetchFile cs digest dest = findObject cs digest >>= \path -> liftIO $ copyFile path dest
 
 storeFile :: ContentStore -> FilePath -> CsMonad ObjectDigest
 storeFile cs fp = do
