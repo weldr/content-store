@@ -13,8 +13,10 @@ module Data.ContentStore(ContentStore,
                          runCsMonad,
                          contentStoreValid,
                          fetchByteString,
+                         fetchByteStringC,
                          fetchFile,
                          fetchLazyByteString,
+                         fetchLazyByteStringC,
                          mkContentStore,
                          openContentStore,
                          storeByteString,
@@ -25,9 +27,9 @@ module Data.ContentStore(ContentStore,
                          storeLazyByteStringC)
  where
 
-import           Conduit((.|), Conduit, awaitForever, runConduit, sinkList, sourceDirectoryDeep, yield)
+import           Conduit((.|), Conduit, awaitForever, runConduit, sinkLazy, sinkList, sourceDirectoryDeep, sourceFile, yield)
 import           Control.Conditional(ifM, unlessM)
-import           Control.Monad(forM, forM_)
+import           Control.Monad((>=>), forM, forM_)
 import           Control.Monad.Base(MonadBase(..))
 import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
 import           Control.Monad.IO.Class(MonadIO, liftIO)
@@ -214,6 +216,13 @@ openContentStore fp = do
 fetchByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> ObjectDigest -> m BS.ByteString
 fetchByteString cs digest = findObject cs digest >>= liftIO . BS.readFile
 
+-- Given a Conduit of ObjectDigests, load each one into a ByteString and
+-- put it into the Conduit.  This is useful for streaming many objects out
+-- of the content store at a time, like when exporting an RPM or other package.
+fetchByteStringC :: (MonadError CsError m, MonadIO m, MonadResource m) => ContentStore -> Conduit ObjectDigest m BS.ByteString
+fetchByteStringC cs = awaitForever $
+    findObject cs >=> sourceFile
+
 -- Given an object as a ByteString, put it into the content store.  Return the
 -- object's hash so it can be recorded elsewhere.  If an object with the same
 -- hash already exists in the content store, this is a duplicate.  Simply
@@ -238,6 +247,11 @@ storeByteStringC cs = awaitForever $ \bs -> do
 -- Like fetchByteString, but uses lazy ByteStrings instead.
 fetchLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> ObjectDigest -> m LBS.ByteString
 fetchLazyByteString cs digest = findObject cs digest >>= liftIO . LBS.readFile
+
+-- Like fetchByteStringC, but uses lazy ByteStrings instead.
+fetchLazyByteStringC :: (MonadError CsError m, MonadIO m, MonadResource m) => ContentStore -> Conduit ObjectDigest m LBS.ByteString
+fetchLazyByteStringC cs = awaitForever $
+    findObject cs >=> \path -> sourceFile path .| sinkLazy
 
 -- Like storeByteString, but uses lazy ByteStrings instead.
 storeLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> LBS.ByteString -> m ObjectDigest
