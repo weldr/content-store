@@ -122,26 +122,25 @@ findObject cs digest = do
         (return Nothing)
 
 doFetch :: (MonadError CsError m, MonadIO m) => ContentStore -> (FilePath -> IO a) -> ObjectDigest -> m a
-doFetch cs reader digest = do
-    rv <- liftIO $ findObject cs digest
-    case rv of
+doFetch cs reader digest =
+    liftIO (findObject cs digest) >>= \case
         Nothing   -> throwError $ CsErrorNoSuchObject (toHex digest)
         Just path -> liftIO $ reader path
 
 doStore :: (MonadError CsError m, MonadIO m) => ContentStore -> (a -> ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> m ObjectDigest
 doStore cs hasher writer object = do
-        let digest             = hasher object
-        let (subdir, filename) = storedObjectDestination digest
-            path               = objectSubdirectoryPath cs subdir </> filename
+    let digest             = hasher object
+    let (subdir, filename) = storedObjectDestination digest
+        path               = objectSubdirectoryPath cs subdir </> filename
 
-        liftIO $ ensureObjectSubdirectory cs subdir
+    liftIO $ ensureObjectSubdirectory cs subdir
 
-        -- Only store the object if it does not already exist in the content store.
-        -- If it's already there, just return the digest.
-        unlessM (liftIO $ doesFileExist path) $
-            liftIO $ writer path object
+    -- Only store the object if it does not already exist in the content store.
+    -- If it's already there, just return the digest.
+    unlessM (liftIO $ doesFileExist path) $
+        liftIO $ writer path object
 
-        return digest
+    return digest
 
 --
 -- CONTENT STORE MANAGEMENT
@@ -197,12 +196,15 @@ mkContentStore fp = do
 openContentStore :: (MonadError CsError m, MonadIO m) => FilePath -> m ContentStore
 openContentStore fp = do
     path <- liftIO $ canonicalizePath fp
+
     _ <- contentStoreValid path
-    rv <- liftIO $ readConfig (path </> "config")
-    conf <- case rv of
+
+    conf <- liftIO (readConfig $ path </> "config") >>= \case
         Left e  -> throwError $ CsErrorConfig (show e)
         Right c -> return c
+
     let algo = confHash conf
+
     case getDigestAlgorithm algo of
         Nothing -> throwError $ CsErrorUnsupportedHash (show algo)
         Just da -> return ContentStore { csRoot=path, csConfig=conf, csHash=da }
