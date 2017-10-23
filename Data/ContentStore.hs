@@ -28,7 +28,7 @@ module Data.ContentStore(ContentStore,
  where
 
 import           Conduit((.|), Conduit, awaitForever, runConduit, sinkLazy, sinkList, sourceDirectoryDeep, sourceFile, yield)
-import           Control.Conditional(ifM, unlessM)
+import           Control.Conditional(ifM, unlessM, whenM)
 import           Control.Monad((>=>), forM, forM_, void)
 import           Control.Monad.Base(MonadBase(..))
 import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
@@ -38,8 +38,12 @@ import           Control.Monad.Trans.Control(MonadBaseControl(..))
 import           Control.Monad.Trans.Resource(MonadResource, MonadThrow, ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
-import           System.Directory(canonicalizePath, copyFile, createDirectoryIfMissing, doesDirectoryExist, doesFileExist)
+import           Data.Maybe(isNothing)
+import           System.Directory(canonicalizePath, copyFile, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import           System.FilePath((</>))
+import           System.IO(Handle, SeekMode(..))
+import           System.IO.Temp(openTempFile)
+import           System.Posix.IO(FileLock, LockRequest(..), OpenMode(..), closeFd, defaultFileFlags, fdToHandle, getLock, handleToFd, openFd, setLock, waitToSetLock)
 
 import Data.ContentStore.Config(Config(..), defaultConfig, readConfig, writeConfig)
 import Data.ContentStore.Digest
@@ -75,7 +79,7 @@ runCsMonad :: CsMonad a -> IO (Either CsError a)
 runCsMonad x = runExceptT $ runResourceT $ getCsMonad x
 
 csSubdirs :: [String]
-csSubdirs = ["objects"]
+csSubdirs = ["objects", "tmp", "lock"]
 
 --
 -- PRIVATE FUNCTIONS
@@ -123,7 +127,42 @@ findObject cs digest = do
         (return path)
         (throwError $ CsErrorNoSuchObject $ toHex digest)
 
-doStore :: (MonadError CsError m, MonadIO m) => ContentStore -> (a -> ObjectDigest) -> (FilePath -> a -> IO ()) -> a -> m ObjectDigest
+startStore :: ContentStore -> IO (FilePath, Handle)
+startStore ContentStore{..} = do
+    -- Acquire the global lock to prevent a race between creating the tmp file and locking it.
+    (path, fd) <- withGlobalLock csRoot $ do
+        -- Create a new file in the tmp directory
+        (path, handle) <- openTempFile "import" (csRoot </> "tmp")
+
+        -- NB: this step closes handle
+        fd <- handleToFd handle
+
+        -- Lock the file
+        setLock fd fullLock
+
+        return (path, fd)
+
+    -- Reopen the locked fd as a handle and return
+    handle' <- fdToHandle fd
+    return (path, handle')
+
+finishStore :: ContentStore -> (FilePath, Handle) -> ObjectDigest -> IO ()
+finishStore cs (tmpPath, handle) digest = do
+    let (subdir, filename) = storedObjectDestination digest
+    let path               = objectSubdirectoryPath cs subdir </> filename
+
+    ensureObjectSubdirectory cs subdir
+
+    -- Move the file into the object directory
+    renameFile tmpPath path
+
+    -- Unlock the file and close the descriptor
+    fd <- handleToFd handle
+    setLock fd fullUnlock
+    closeFd fd
+
+-- This stores an object that is already (or can be) fully loaded into memory
+doStore :: MonadIO m => ContentStore -> (a -> ObjectDigest) -> (Handle -> a -> IO ()) -> a -> m ObjectDigest
 doStore cs hasher writer object = do
     let digest             = hasher object
     let (subdir, filename) = storedObjectDestination digest
@@ -133,10 +172,48 @@ doStore cs hasher writer object = do
 
     -- Only store the object if it does not already exist in the content store.
     -- If it's already there, just return the digest.
-    unlessM (liftIO $ doesFileExist path) $
-        liftIO $ writer path object
+    liftIO $ unlessM (doesFileExist path) $ do
+        (tmpPath, handle) <- startStore cs
+        writer handle object
+        finishStore cs (tmpPath, handle) digest
 
     return digest
+
+-- lock file management
+fullLock :: FileLock
+fullLock = (WriteLock, AbsoluteSeek, 0, 0)
+
+fullUnlock :: FileLock
+fullUnlock = (Unlock, AbsoluteSeek, 0, 0)
+
+withGlobalLock :: MonadIO m => FilePath -> m a -> m a
+withGlobalLock csRoot action = do
+    let lockFile = csRoot </> "lock" </> "lockfile"
+
+    -- Create or open the lock file
+    fd <- liftIO $ openFd lockFile WriteOnly (Just 0o644) defaultFileFlags
+
+    -- Acquire the lock
+    liftIO $ waitToSetLock fd fullLock
+
+    -- Perform the action
+    ret <- action
+
+    -- Release the lock
+    liftIO $ setLock fd fullUnlock
+
+    return ret
+
+-- Cleanup any stale tmp files. These are any files in the tmp directory
+-- that are not locked, while the global lock is held.
+cleanupTmp :: FilePath -> IO ()
+cleanupTmp csRoot = withGlobalLock csRoot $ listDirectory (csRoot </> "tmp") >>= mapM_ cleanupOne
+ where
+    cleanupOne :: FilePath -> IO ()
+    cleanupOne tmpFile = do
+        let fullPath = csRoot </> tmpFile
+        fd <- openFd fullPath ReadOnly Nothing defaultFileFlags
+        whenM (isNothing <$> getLock fd fullLock) $ removeFile fullPath
 
 --
 -- CONTENT STORE MANAGEMENT
@@ -195,6 +272,8 @@ openContentStore fp = do
 
     void $ contentStoreValid path
 
+    liftIO $ cleanupTmp path
+
     conf <- liftIO (readConfig $ path </> "config") >>= \case
         Left e  -> throwError $ CsErrorConfig (show e)
         Right c -> return c
@@ -228,7 +307,7 @@ fetchByteStringC cs = awaitForever $
 -- hash already exists in the content store, this is a duplicate.  Simply
 -- return the hash of the already stored object.
 storeByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> BS.ByteString -> m ObjectDigest
-storeByteString cs = doStore cs (digestByteString $ csHash cs) BS.writeFile
+storeByteString cs = doStore cs (digestByteString $ csHash cs) BS.hPut
 
 -- Given a Conduit of ByteStrings, store each one into the content store and put
 -- the hash of each into the Conduit.  This is useful for storing many objects
@@ -255,7 +334,7 @@ fetchLazyByteStringC cs = awaitForever $
 
 -- Like storeByteString, but uses lazy ByteStrings instead.
 storeLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> LBS.ByteString -> m ObjectDigest
-storeLazyByteString cs = doStore cs (digestLazyByteString $ csHash cs) LBS.writeFile
+storeLazyByteString cs = doStore cs (digestLazyByteString $ csHash cs) LBS.hPut
 
 -- Like storeByteStringC, but uses lazy ByteStrings instead.
 storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit LBS.ByteString m ObjectDigest
@@ -274,7 +353,7 @@ storeDirectory cs fp = do
     entries <- runConduit $ sourceDirectoryDeep False fp .| sinkList
     forM entries $ \entry -> do
         object <- liftIO $ BS.readFile entry
-        digest <- doStore cs hasher BS.writeFile object
+        digest <- doStore cs hasher BS.hPut object
         return (entry, digest)
 
 --

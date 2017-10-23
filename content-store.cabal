@@ -27,9 +27,11 @@ library
                      memory >= 0.14.3,
                      mtl,
                      resourcet,
+                     temporary,
                      text,
                      transformers,
-                     transformers-base
+                     transformers-base,
+                     unix
 
   default-language:  Haskell2010
   ghc-options:       -Wall
