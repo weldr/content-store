@@ -21,13 +21,15 @@ module Data.ContentStore(ContentStore,
                          openContentStore,
                          storeByteString,
                          storeByteStringC,
+                         storeByteStringSink,
                          storeDirectory,
                          storeFile,
                          storeLazyByteString,
-                         storeLazyByteStringC)
+                         storeLazyByteStringC,
+                         storeLazyByteStringSink)
  where
 
-import           Conduit((.|), Conduit, awaitForever, runConduit, sinkLazy, sinkList, sourceDirectoryDeep, sourceFile, yield)
+import           Conduit((.|), Conduit, Sink, await, awaitForever, runConduit, sinkLazy, sinkList, sourceDirectoryDeep, sourceFile, yield)
 import           Control.Conditional(ifM, unlessM, whenM)
 import           Control.Monad((>=>), forM, forM_, void)
 import           Control.Monad.Base(MonadBase(..))
@@ -179,6 +181,26 @@ doStore cs hasher writer object = do
 
     return digest
 
+-- Stream data into the content-store without loading all of it at once
+doStoreSink :: MonadIO m => ContentStore -> (DigestContext -> a -> DigestContext) -> (Handle -> a -> IO ()) -> Sink a m ObjectDigest
+doStoreSink cs hasher writer = do
+    (tmpPath, handle) <- liftIO $ startStore cs
+    let initctx = digestInit $ csHash cs
+    digest <- doStream (tmpPath, handle) initctx
+    let (subdir, _) = storedObjectDestination digest
+
+    liftIO $ ensureObjectSubdirectory cs subdir
+    liftIO $ finishStore cs (tmpPath, handle) digest
+
+    return digest
+ where
+    doStream (tmpPath, handle) ctx = await >>= \case
+        Nothing    -> return $ digestFinalize ctx
+        Just chunk -> do
+            let newctx = hasher ctx chunk
+            liftIO $ writer handle chunk
+            doStream (tmpPath, handle) newctx
+
 -- lock file management
 fullLock :: FileLock
 fullLock = (WriteLock, AbsoluteSeek, 0, 0)
@@ -319,6 +341,12 @@ storeByteStringC cs = awaitForever $ \bs -> do
     digest <- lift $ storeByteString cs bs
     yield digest
 
+-- Read in a conduit of ByteStrings, store the stream into an object in the
+-- content store, and return the final digest. This is useful for storing a
+-- stream of data as a single object.
+storeByteStringSink :: MonadIO m => ContentStore -> Sink BS.ByteString m ObjectDigest
+storeByteStringSink cs = doStoreSink cs digestUpdate BS.hPut
+
 --
 -- LAZY BYTE STRING INTERFACE
 --
@@ -341,6 +369,10 @@ storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Con
 storeLazyByteStringC cs = awaitForever $ \bs -> do
     digest <- lift $ storeLazyByteString cs bs
     yield digest
+
+-- Like storeByteStringSink, but uses lazy ByteStrings instead
+storeLazyByteStringSink :: MonadIO m => ContentStore -> Sink LBS.ByteString m ObjectDigest
+storeLazyByteStringSink cs = doStoreSink cs (LBS.foldlChunks digestUpdate) LBS.hPut
 
 --
 -- DIRECTORY INTERFACE
