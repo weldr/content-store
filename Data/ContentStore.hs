@@ -22,6 +22,7 @@ module Data.ContentStore(ContentStore,
                          CsError(..),
                          CsMonad,
                          runCsMonad,
+                         contentStoreDigest,
                          contentStoreValid,
                          fetchByteString,
                          fetchByteStringC,
@@ -302,6 +303,10 @@ contentStoreValid fp = do
             throwError $ CsErrorInvalid subdir
 
     return True
+
+-- | Return the digest type used by a content store.
+contentStoreDigest :: ContentStore -> DigestAlgorithm
+contentStoreDigest ContentStore{..} = csHash
 
 -- | Create a new 'ContentStore' on disk, rooted at the path given, and return it as if
 -- 'openContentStore' had also been called.  If a content store already exists at the
