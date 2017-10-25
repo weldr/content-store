@@ -263,7 +263,7 @@ withGlobalLock csRoot action = do
     ret <- action
 
     -- Release the lock
-    liftIO $ setLock fd fullUnlock
+    liftIO $ setLock fd fullUnlock >> closeFd fd
 
     return ret
 
