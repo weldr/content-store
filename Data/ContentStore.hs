@@ -175,7 +175,7 @@ startStore ContentStore{..} = do
     -- Acquire the global lock to prevent a race between creating the tmp file and locking it.
     (path, fd) <- withGlobalLock csRoot $ do
         -- Create a new file in the tmp directory
-        (path, handle) <- openTempFile "import" (csRoot </> "tmp")
+        (path, handle) <- openTempFile (csRoot </> "tmp") "import"
 
         -- NB: this step closes handle
         fd <- handleToFd handle
