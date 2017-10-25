@@ -443,17 +443,19 @@ storeDirectory cs fp = do
 -- | Find some object in the content store and write it to a destination.  If the destination already
 -- exists, it will be overwritten.  If the object does not already exist, a 'CsErrorNoSuchObject' will
 -- be thrown.
-fetchFile :: ContentStore   -- ^ An opened 'ContentStore'.
+fetchFile :: (MonadResource m, MonadError CsError m, MonadIO m) =>
+             ContentStore   -- ^ An opened 'ContentStore'.
           -> ObjectDigest   -- ^ The 'ObjectDigest' of some stored object.
           -> FilePath       -- ^ The destination
-          -> CsMonad ()
+          -> m ()
 fetchFile cs digest dest = findObject cs digest >>= \path -> liftIO $ copyFile path dest
 
 -- | Store an already existing file in the content store, returning its 'ObjectDigest'.  The original
 -- file will be left on disk.
-storeFile :: ContentStore           -- ^ An opened 'ContentStore'.
+storeFile :: (MonadResource m, MonadError CsError m, MonadIO m) =>
+             ContentStore           -- ^ An opened 'ContentStore'.
           -> FilePath               -- ^ The file to be stored.
-          -> CsMonad ObjectDigest
+          -> m ObjectDigest
 storeFile cs fp = do
     lbs <- liftIO $ LBS.readFile fp
     storeLazyByteString cs lbs
