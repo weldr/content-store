@@ -47,7 +47,6 @@ import           Control.Monad((>=>), forM, forM_, void)
 import           Control.Monad.Base(MonadBase(..))
 import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
 import           Control.Monad.IO.Class(MonadIO, liftIO)
-import           Control.Monad.Trans.Class(lift)
 import           Control.Monad.Trans.Control(MonadBaseControl(..))
 import           Control.Monad.Trans.Resource(MonadResource, MonadThrow, ResourceT, runResourceT)
 import qualified Data.ByteString as BS
@@ -206,8 +205,8 @@ finishStore cs (tmpPath, handle) digest = do
     closeFd fd
 
 -- This stores an object that is already (or can be) fully loaded into memory
-doStore :: MonadIO m => ContentStore -> (a -> ObjectDigest) -> (Handle -> a -> IO ()) -> a -> m ObjectDigest
-doStore cs hasher writer object = do
+doStore :: MonadIO m => ContentStore -> (a -> ObjectDigest) -> (Handle -> a -> IO ()) -> Conduit a m ObjectDigest
+doStore cs hasher writer = awaitForever $ \object -> do
     let digest             = hasher object
     let (subdir, filename) = storedObjectDestination digest
         path               = objectSubdirectoryPath cs subdir </> filename
@@ -221,7 +220,7 @@ doStore cs hasher writer object = do
         writer handle object
         finishStore cs (tmpPath, handle) digest
 
-    return digest
+    yield digest
 
 -- Stream data into the content-store without loading all of it at once
 doStoreSink :: MonadIO m => ContentStore -> (DigestContext -> a -> DigestContext) -> (Handle -> Sink a m ()) -> Sink a m ObjectDigest
@@ -376,19 +375,19 @@ fetchByteStringC cs = awaitForever $
 -- with the same digest already exists in the content store, this is a duplicate.  Simply
 -- return the digest of the already stored object and do nothing else.  A 'CsErrorCollision'
 -- will NOT be thrown.
-storeByteString :: (MonadError CsError m, MonadIO m) =>
+storeByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m) =>
                    ContentStore     -- ^ An opened 'ContentStore'.
                 -> BS.ByteString    -- ^ An object to be stored, as a strict 'ByteString'.
                 -> m ObjectDigest
-storeByteString cs = doStore cs (digestByteString $ csHash cs) BS.hPut
+storeByteString cs bs = do
+    result <- runConduitRes $ yield bs .| storeByteStringC cs .| headC
+    return $ fromJust result
 
 -- | Like 'storeByteString', but read strict 'ByteString's from a 'Conduit' and put their
 -- 'ObjectDigest's into the conduit.  This is useful for storing many objects at a time,
 -- like with importing an RPM or other package format.
 storeByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit BS.ByteString m ObjectDigest
-storeByteStringC cs = awaitForever $ \bs -> do
-    digest <- lift $ storeByteString cs bs
-    yield digest
+storeByteStringC cs = doStore cs (digestByteString $ csHash cs) BS.hPut
 
 -- | Read in a 'Conduit' of strict 'ByteString's, store the stream into an object in an
 -- already opened 'ContentStore', and return the final digest.  This is useful for
@@ -415,14 +414,17 @@ fetchLazyByteStringC cs = awaitForever $
     findObject cs >=> \path -> sourceFile path .| sinkLazy
 
 -- | Like 'storeByteString', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
-storeLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> LBS.ByteString -> m ObjectDigest
-storeLazyByteString cs = doStore cs (digestLazyByteString $ csHash cs) LBS.hPut
+storeLazyByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m) =>
+                       ContentStore
+                    -> LBS.ByteString
+                    -> m ObjectDigest
+storeLazyByteString cs bs = do
+    result <- runConduitRes $ yield bs .| storeLazyByteStringC cs .| headC
+    return $ fromJust result
 
 -- | Like 'storeByteStringC', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit LBS.ByteString m ObjectDigest
-storeLazyByteStringC cs = awaitForever $ \bs -> do
-    digest <- lift $ storeLazyByteString cs bs
-    yield digest
+storeLazyByteStringC cs = doStore cs (digestLazyByteString $ csHash cs) LBS.hPut
 
 -- | Like 'storeByteStringSink', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 storeLazyByteStringSink :: MonadIO m => ContentStore -> Sink LBS.ByteString m ObjectDigest
@@ -436,17 +438,14 @@ storeLazyByteStringSink cs = doStoreSink cs (LBS.foldlChunks digestUpdate) (\h -
 -- of each.  Note that directories will not be stored.  The content store only contains things that
 -- have content.  If you need to store directory information, that should be handled externally to
 -- this module.
-storeDirectory :: (MonadResource m, MonadError CsError m, MonadIO m) =>
+storeDirectory :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, MonadResource m) =>
                   ContentStore                  -- ^ An opened 'ContentStore'.
                -> FilePath                      -- ^ A directory tree containing many objects.
                -> m [(FilePath, ObjectDigest)]
 storeDirectory cs fp = do
-    let hasher = digestByteString $ csHash cs
-
     entries <- runConduit $ sourceDirectoryDeep False fp .| sinkList
     forM entries $ \entry -> do
-        object <- liftIO $ BS.readFile entry
-        digest <- doStore cs hasher BS.hPut object
+        digest <- storeFile cs entry
         return (entry, digest)
 
 --
@@ -466,7 +465,7 @@ fetchFile cs digest dest =
 
 -- | Store an already existing file in the content store, returning its 'ObjectDigest'.  The original
 -- file will be left on disk.
-storeFile :: (MonadResource m, MonadError CsError m, MonadIO m) =>
+storeFile :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, MonadResource m) =>
              ContentStore           -- ^ An opened 'ContentStore'.
           -> FilePath               -- ^ The file to be stored.
           -> m ObjectDigest
