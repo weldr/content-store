@@ -41,7 +41,7 @@ module Data.ContentStore(ContentStore,
                          storeLazyByteStringSink)
  where
 
-import           Conduit((.|), Conduit, Sink, ZipConduit(..), await, awaitForever, getZipConduit, mapC, runConduit, sinkHandle, sinkLazy, sinkList, sourceDirectoryDeep, sourceFile, yield)
+import           Conduit((.|), Conduit, Sink, ZipConduit(..), await, awaitForever, getZipConduit, headC, mapC, runConduit, runConduitRes, sinkFile, sinkHandle, sinkLazy, sinkList, sourceDirectoryDeep, sourceFile, yield)
 import           Control.Conditional(ifM, unlessM, whenM)
 import           Control.Monad((>=>), forM, forM_, void)
 import           Control.Monad.Base(MonadBase(..))
@@ -52,8 +52,8 @@ import           Control.Monad.Trans.Control(MonadBaseControl(..))
 import           Control.Monad.Trans.Resource(MonadResource, MonadThrow, ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
-import           Data.Maybe(isNothing)
-import           System.Directory(canonicalizePath, copyFile, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
+import           Data.Maybe(fromJust, isNothing)
+import           System.Directory(canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import           System.FilePath((</>))
 import           System.IO(Handle, SeekMode(..))
 import           System.IO.Temp(openTempFile)
@@ -356,11 +356,13 @@ openContentStore fp = do
 -- | Lookup and return some previously stored object as a strict 'ByteString'.  Note that
 -- you'll probably need to use 'fromByteString' to produce an 'ObjectDigest' from whatever
 -- text or binary representation you've got from the user/mddb/etc.
-fetchByteString :: (MonadError CsError m, MonadIO m) =>
+fetchByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, MonadThrow m) =>
                    ContentStore     -- ^ An opened 'ContentStore'.
                 -> ObjectDigest     -- ^ The 'ObjectDigest' for some stored object.
                 -> m BS.ByteString
-fetchByteString cs digest = findObject cs digest >>= liftIO . BS.readFile
+fetchByteString cs digest = do
+    result <- runConduitRes $ yield digest .| fetchByteStringC cs .| headC
+    return $ fromJust result
 
 -- | Given an opened 'ContentStore' and a 'Conduit' of 'ObjectDigest's, load each one into
 -- a strict 'ByteString' and put it into the conduit.  This is useful for stream many
@@ -399,8 +401,13 @@ storeByteStringSink cs = doStoreSink cs digestUpdate sinkHandle
 --
 
 -- | Like 'fetchByteString', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
-fetchLazyByteString :: (MonadError CsError m, MonadIO m) => ContentStore -> ObjectDigest -> m LBS.ByteString
-fetchLazyByteString cs digest = findObject cs digest >>= liftIO . LBS.readFile
+fetchLazyByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, MonadThrow m) =>
+                       ContentStore
+                    -> ObjectDigest
+                    -> m LBS.ByteString
+fetchLazyByteString cs digest = do
+    result <- runConduitRes $ yield digest .| fetchLazyByteStringC cs .| headC
+    return $ fromJust result
 
 -- | Like 'fetchByteStringC', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 fetchLazyByteStringC :: (MonadError CsError m, MonadIO m, MonadResource m) => ContentStore -> Conduit ObjectDigest m LBS.ByteString
@@ -449,12 +456,13 @@ storeDirectory cs fp = do
 -- | Find some object in the content store and write it to a destination.  If the destination already
 -- exists, it will be overwritten.  If the object does not already exist, a 'CsErrorNoSuchObject' will
 -- be thrown.
-fetchFile :: (MonadResource m, MonadError CsError m, MonadIO m) =>
+fetchFile :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, MonadResource m) =>
              ContentStore   -- ^ An opened 'ContentStore'.
           -> ObjectDigest   -- ^ The 'ObjectDigest' of some stored object.
           -> FilePath       -- ^ The destination
           -> m ()
-fetchFile cs digest dest = findObject cs digest >>= \path -> liftIO $ copyFile path dest
+fetchFile cs digest dest =
+    runConduitRes $ yield digest .| fetchByteStringC cs .| sinkFile dest
 
 -- | Store an already existing file in the content store, returning its 'ObjectDigest'.  The original
 -- file will be left on disk.
