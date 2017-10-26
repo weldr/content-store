@@ -359,9 +359,8 @@ fetchByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, Mona
                    ContentStore     -- ^ An opened 'ContentStore'.
                 -> ObjectDigest     -- ^ The 'ObjectDigest' for some stored object.
                 -> m BS.ByteString
-fetchByteString cs digest = do
-    result <- runConduitRes $ yield digest .| fetchByteStringC cs .| headC
-    return $ fromJust result
+fetchByteString cs digest =
+    fromJust <$> runConduitRes (yield digest .| fetchByteStringC cs .| headC)
 
 -- | Given an opened 'ContentStore' and a 'Conduit' of 'ObjectDigest's, load each one into
 -- a strict 'ByteString' and put it into the conduit.  This is useful for stream many
@@ -379,9 +378,8 @@ storeByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m) =>
                    ContentStore     -- ^ An opened 'ContentStore'.
                 -> BS.ByteString    -- ^ An object to be stored, as a strict 'ByteString'.
                 -> m ObjectDigest
-storeByteString cs bs = do
-    result <- runConduitRes $ yield bs .| storeByteStringC cs .| headC
-    return $ fromJust result
+storeByteString cs bs =
+    fromJust <$> runConduitRes (yield bs .| storeByteStringC cs .| headC)
 
 -- | Like 'storeByteString', but read strict 'ByteString's from a 'Conduit' and put their
 -- 'ObjectDigest's into the conduit.  This is useful for storing many objects at a time,
@@ -404,9 +402,8 @@ fetchLazyByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, 
                        ContentStore
                     -> ObjectDigest
                     -> m LBS.ByteString
-fetchLazyByteString cs digest = do
-    result <- runConduitRes $ yield digest .| fetchLazyByteStringC cs .| headC
-    return $ fromJust result
+fetchLazyByteString cs digest =
+    fromJust <$> runConduitRes (yield digest .| fetchLazyByteStringC cs .| headC)
 
 -- | Like 'fetchByteStringC', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 fetchLazyByteStringC :: (MonadError CsError m, MonadIO m, MonadResource m) => ContentStore -> Conduit ObjectDigest m LBS.ByteString
@@ -418,9 +415,8 @@ storeLazyByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m) 
                        ContentStore
                     -> LBS.ByteString
                     -> m ObjectDigest
-storeLazyByteString cs bs = do
-    result <- runConduitRes $ yield bs .| storeLazyByteStringC cs .| headC
-    return $ fromJust result
+storeLazyByteString cs bs =
+    fromJust <$> runConduitRes (yield bs .| storeLazyByteStringC cs .| headC)
 
 -- | Like 'storeByteStringC', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit LBS.ByteString m ObjectDigest
