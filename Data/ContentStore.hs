@@ -41,7 +41,7 @@ module Data.ContentStore(ContentStore,
                          storeLazyByteStringSink)
  where
 
-import           Conduit((.|), Conduit, Sink, ZipConduit(..), await, awaitForever, getZipConduit, headC, mapC, runConduit, runConduitRes, sinkFile, sinkHandle, sinkLazy, sinkList, sourceDirectoryDeep, sourceFile, yield)
+import           Conduit
 import           Control.Conditional(ifM, unlessM, whenM)
 import           Control.Monad((>=>), forM, forM_, void)
 import           Control.Monad.Base(MonadBase(..))
