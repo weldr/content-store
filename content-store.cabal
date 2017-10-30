@@ -1,11 +1,22 @@
 name:                content-store
 version:             0.1.0
-license:             LGPL
+synopsis:            Store and retrieve data from an on-disk store
+description:         This module provides a way to store and retrieve arbitrary
+                     data from an on-disk store, similar to how a source
+                     control system works but without the assumptions of such
+                     a system.
+homepage:            https://github.com/weldr/content-store
+category:            System
 author:              Chris Lumens
 maintainer:          clumens@redhat.com
-copyright:           (c) 2017 Red Hat, Inc
+license:             LGPL
+license-file:        LICENSE
 build-type:          Simple
 cabal-version:       >= 1.10
+
+source-repository   head
+    type:           git
+    location:       https://github.com/weldr/content-store
 
 library
   exposed-modules:   Data.ContentStore,
@@ -23,6 +34,7 @@ library
                      directory,
                      filepath,
                      htoml,
+                     lzma-conduit,
                      monad-control,
                      memory >= 0.14.3,
                      mtl,
