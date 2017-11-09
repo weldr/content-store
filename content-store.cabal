@@ -1,5 +1,5 @@
 name:                content-store
-version:             0.1.0
+version:             0.1.1
 synopsis:            Store and retrieve data from an on-disk store
 description:         This module provides a way to store and retrieve arbitrary
                      data from an on-disk store, similar to how a source
