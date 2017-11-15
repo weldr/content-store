@@ -52,6 +52,7 @@ import           Control.Monad.Trans.Control(MonadBaseControl(..))
 import           Control.Monad.Trans.Resource(MonadResource, MonadThrow, ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import           Data.Conduit.Lzma(compress, decompress)
 import           Data.Maybe(isNothing)
 import           System.Directory(canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import           System.FilePath((</>))
@@ -279,6 +280,17 @@ cleanupTmp csRoot = withGlobalLock csRoot $ listDirectory (csRoot </> "tmp") >>=
         let fullPath = csRoot </> tmpFile
         fd <- openFd fullPath ReadOnly Nothing defaultFileFlags
         whenM (isNothing <$> getLock fd fullLock) $ removeFile fullPath
+
+identityC :: Monad m => Conduit a m a
+identityC = mapC id
+
+maybeCompress :: MonadResource m => ContentStore -> Conduit BS.ByteString m BS.ByteString
+maybeCompress cs =
+    if confCompressed . csConfig $ cs then compress Nothing else identityC
+
+maybeDecompress :: MonadResource m => ContentStore -> Conduit BS.ByteString m BS.ByteString
+maybeDecompress cs =
+    if confCompressed . csConfig $ cs then decompress Nothing else identityC
 
 --
 -- PUBLIC FUNCTIONS
