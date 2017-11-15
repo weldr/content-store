@@ -206,8 +206,8 @@ finishStore cs (tmpPath, handle) digest = do
     closeFd fd
 
 -- This stores an object that is already (or can be) fully loaded into memory
-doStore :: MonadIO m => ContentStore -> (a -> ObjectDigest) -> (Handle -> Consumer a IO ()) -> Conduit a m ObjectDigest
-doStore cs hasher writer = awaitForever $ \object -> do
+doStore :: MonadIO m => ContentStore -> (BS.ByteString -> ObjectDigest) -> Conduit BS.ByteString m ObjectDigest
+doStore cs hasher = awaitForever $ \object -> do
     let digest             = hasher object
     let (subdir, filename) = storedObjectDestination digest
         path               = objectSubdirectoryPath cs subdir </> filename
@@ -218,7 +218,7 @@ doStore cs hasher writer = awaitForever $ \object -> do
     -- If it's already there, just return the digest.
     liftIO $ unlessM (doesFileExist path) $ do
         (tmpPath, handle) <- startStore cs
-        void $ runConduit $ yield object .| writer handle
+        void $ runConduit $ yield object .| sinkHandle handle
         finishStore cs (tmpPath, handle) digest
 
     yield digest
@@ -397,7 +397,7 @@ storeByteString cs bs =
 -- 'ObjectDigest's into the conduit.  This is useful for storing many objects at a time,
 -- like with importing an RPM or other package format.
 storeByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit BS.ByteString m ObjectDigest
-storeByteStringC cs = doStore cs (digestByteString $ csHash cs) sinkHandle
+storeByteStringC cs = doStore cs (digestByteString $ csHash cs)
 
 -- | Read in a 'Conduit' of strict 'ByteString's, store the stream into an object in an
 -- already opened 'ContentStore', and return the final digest.  This is useful for
@@ -432,7 +432,7 @@ storeLazyByteString cs bs =
 
 -- | Like 'storeByteStringC', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 storeLazyByteStringC :: (MonadError CsError m, MonadIO m) => ContentStore -> Conduit LBS.ByteString m ObjectDigest
-storeLazyByteStringC cs = doStore cs (digestLazyByteString $ csHash cs) (\h -> mapC LBS.toStrict .| sinkHandle h)
+storeLazyByteStringC cs = mapC LBS.toStrict .| doStore cs (digestByteString $ csHash cs)
 
 -- | Like 'storeByteStringSink', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 storeLazyByteStringSink :: MonadIO m => ContentStore -> Sink LBS.ByteString m ObjectDigest
