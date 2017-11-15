@@ -378,7 +378,7 @@ fetchByteString cs digest =
 -- a strict 'ByteString' and put it into the conduit.  This is useful for stream many
 -- objects out of the content store at a time, like with exporting an RPM or other package
 -- format.
-fetchByteStringC :: (MonadError CsError m, MonadIO m, MonadResource m) => ContentStore -> Conduit ObjectDigest m BS.ByteString
+fetchByteStringC :: (MonadError CsError m, MonadResource m) => ContentStore -> Conduit ObjectDigest m BS.ByteString
 fetchByteStringC cs = awaitForever $
     findObject cs >=> sourceFile
 
@@ -418,7 +418,7 @@ fetchLazyByteString cs digest =
     runConduitRes (yield digest .| fetchLazyByteStringC cs .| headCMissing digest)
 
 -- | Like 'fetchByteStringC', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
-fetchLazyByteStringC :: (MonadError CsError m, MonadIO m, MonadResource m) => ContentStore -> Conduit ObjectDigest m LBS.ByteString
+fetchLazyByteStringC :: (MonadError CsError m, MonadResource m) => ContentStore -> Conduit ObjectDigest m LBS.ByteString
 fetchLazyByteStringC cs = awaitForever $
     findObject cs >=> \path -> sourceFile path .| sinkLazy
 
@@ -446,7 +446,7 @@ storeLazyByteStringSink cs = doStoreSink cs (LBS.foldlChunks digestUpdate) (\h -
 -- of each.  Note that directories will not be stored.  The content store only contains things that
 -- have content.  If you need to store directory information, that should be handled externally to
 -- this module.
-storeDirectory :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, MonadResource m) =>
+storeDirectory :: (MonadBaseControl IO m, MonadError CsError m, MonadResource m) =>
                   ContentStore                  -- ^ An opened 'ContentStore'.
                -> FilePath                      -- ^ A directory tree containing many objects.
                -> m [(FilePath, ObjectDigest)]
@@ -463,7 +463,7 @@ storeDirectory cs fp = do
 -- | Find some object in the content store and write it to a destination.  If the destination already
 -- exists, it will be overwritten.  If the object does not already exist, a 'CsErrorNoSuchObject' will
 -- be thrown.
-fetchFile :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, MonadResource m) =>
+fetchFile :: (MonadBaseControl IO m, MonadError CsError m, MonadResource m) =>
              ContentStore   -- ^ An opened 'ContentStore'.
           -> ObjectDigest   -- ^ The 'ObjectDigest' of some stored object.
           -> FilePath       -- ^ The destination
@@ -473,7 +473,7 @@ fetchFile cs digest dest =
 
 -- | Store an already existing file in the content store, returning its 'ObjectDigest'.  The original
 -- file will be left on disk.
-storeFile :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, MonadResource m) =>
+storeFile :: (MonadBaseControl IO m, MonadError CsError m, MonadResource m) =>
              ContentStore           -- ^ An opened 'ContentStore'.
           -> FilePath               -- ^ The file to be stored.
           -> m ObjectDigest
