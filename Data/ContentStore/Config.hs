@@ -34,10 +34,14 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           Text.Toml(parseTomlDoc)
 
-{-# ANN module ("HLint: ignore Use newtype instead of data" :: String) #-}
-
 -- | Configuration information needed by the content store.
 data Config = Config {
+    -- | Is the data in the content store compressed?  If this option is missing
+    -- in a config file, we assume that the data is not compressed.  This is to
+    -- keep backwards compatibility with previous versions of the content store
+    -- that did not support compression.  New content stores are created supporting
+    -- compressed contents by default.
+    confCompressed :: Bool,
     -- | What 'DigestAlgorithm' is in use by this content store?  While we do support
     -- several different algorithms, only one can ever be in use by a single content
     -- store.  Note that the 'ContentStore' record also stores this piece of
@@ -48,7 +52,8 @@ data Config = Config {
 
 instance FromJSON Config where
     parseJSON = withObject "Config" $ \v ->
-        Config <$> v .:? "hash" .!= "BLAKE2b256"
+        Config <$> v .:? "compressed" .!= False
+               <*> v .:? "hash" .!= "BLAKE2b256"
 
 instance ToJSON Config where
     toJSON Config{..} = object [ "hash" .= toJSON confHash ]
@@ -58,7 +63,8 @@ instance ToJSON Config where
 -- algorithm is defined.
 defaultConfig :: Config
 defaultConfig =
-    Config { confHash = "BLAKE2b256" }
+    Config { confCompressed = True,
+             confHash = "BLAKE2b256" }
 
 -- | Read a config file on disk, returning the 'Config' record on success and an error
 -- message on error.  This function is typically not useful outside of content store
@@ -78,4 +84,5 @@ readConfig path = do
 writeConfig :: FilePath -> Config -> IO ()
 writeConfig path Config{..} = TIO.writeFile path configText
  where
-    configText = T.concat ["hash = \"", confHash, "\"\n"]
+    configText = T.concat ["compressed = ", if confCompressed then "true" else "false", "\n",
+                           "hash = \"", confHash, "\"\n"]
