@@ -225,13 +225,13 @@ doStore cs hasher = awaitForever $ \object -> do
     yield digest
 
 -- Stream data into the content-store without loading all of it at once
-doStoreSink :: MonadIO m => ContentStore -> (DigestContext -> a -> DigestContext) -> (Handle -> Sink a m ()) -> Sink a m ObjectDigest
-doStoreSink cs hasher writer = do
+doStoreSink :: MonadIO m => ContentStore -> (DigestContext -> BS.ByteString -> DigestContext) -> Sink BS.ByteString m ObjectDigest
+doStoreSink cs hasher = do
     (tmpPath, handle) <- liftIO $ startStore cs
     let initctx = digestInit $ csHash cs
 
     -- One sink calculates the digest, the other writes the data to the tmp file
-    (_, digest) <- getZipConduit ((,) <$> ZipConduit (writer handle)
+    (_, digest) <- getZipConduit ((,) <$> ZipConduit (sinkHandle handle)
                                       <*> ZipConduit (digestSink initctx))
 
     let (subdir, _) = storedObjectDestination digest
@@ -415,7 +415,7 @@ storeByteStringC cs = doStore cs (digestByteString $ csHash cs)
 -- already opened 'ContentStore', and return the final digest.  This is useful for
 -- storing a stream of data as a single object.
 storeByteStringSink :: MonadIO m => ContentStore -> Sink BS.ByteString m ObjectDigest
-storeByteStringSink cs = doStoreSink cs digestUpdate sinkHandle
+storeByteStringSink cs = doStoreSink cs digestUpdate
 
 --
 -- LAZY BYTE STRING INTERFACE
@@ -448,7 +448,7 @@ storeLazyByteStringC cs = mapC LBS.toStrict .| doStore cs (digestByteString $ cs
 
 -- | Like 'storeByteStringSink', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 storeLazyByteStringSink :: MonadIO m => ContentStore -> Sink LBS.ByteString m ObjectDigest
-storeLazyByteStringSink cs = doStoreSink cs (LBS.foldlChunks digestUpdate) (\h -> mapC LBS.toStrict .| sinkHandle h)
+storeLazyByteStringSink cs = mapC LBS.toStrict .| doStoreSink cs digestUpdate
 
 --
 -- DIRECTORY INTERFACE
