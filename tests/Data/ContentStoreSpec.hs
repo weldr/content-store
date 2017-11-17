@@ -1,9 +1,11 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 
 module Data.ContentStoreSpec(spec)
  where
 
 import Control.Monad.Except(runExceptT)
+import Control.Monad.Trans.Resource(runResourceT)
 import System.Directory(createDirectory)
 import System.FilePath.Posix((</>))
 import System.IO.Temp(withSystemTempDirectory)
@@ -14,6 +16,10 @@ import Data.ContentStore.Digest
 
 {-# ANN module ("HLint: ignore Eta reduce" :: String) #-}
 {-# ANN module ("HLint: ignore Reduce duplication" :: String) #-}
+
+anyDigest :: Either CsError ObjectDigest -> Bool
+anyDigest (Right _) = True
+anyDigest _         = False
 
 withContentStore :: ActionWith ContentStore -> IO ()
 withContentStore action = withTempDir $ \d ->
@@ -70,8 +76,28 @@ contentStoreDigestSpec =
                 -- compare names.
                 digestName (contentStoreDigest cs) `shouldBe` "Blake2b_256"
 
+storeFileSpec :: Spec
+storeFileSpec = do
+    describe "storeFile" $
+        around withContentStore $ do
+            it "raises an IOException when trying to store a missing file" $ \cs ->
+                runExceptT (runResourceT $ storeFile cs "xxxxxxxxxxxxxxx") `shouldThrow` anyIOException
+
+            it "storing an existing file should return a digest" $ \cs ->
+                runExceptT (runResourceT $ storeFile cs __FILE__) >>= (`shouldSatisfy` anyDigest)
+
+    describe "storeFile duplicates" $
+        around withContentStore $
+            it "duplicate stores do not raise an error" $ \cs -> do
+                first <- runExceptT $ runResourceT $ storeFile cs __FILE__
+                second <- runExceptT $ runResourceT $ storeFile cs __FILE__
+
+                first `shouldSatisfy` anyDigest
+                first `shouldBe` second
+
 spec :: Spec
 spec =
     describe "ContentStore" $ do
         contentStoreValidSpec
         contentStoreDigestSpec
+        storeFileSpec
