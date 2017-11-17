@@ -1,11 +1,11 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE LambdaCase #-}
 
 module Data.ContentStoreSpec(spec)
  where
 
 import Control.Monad.Except(runExceptT)
 import Control.Monad.Trans.Resource(runResourceT)
+import Data.Either(isRight)
 import System.Directory(createDirectory)
 import System.FilePath.Posix((</>))
 import System.IO.Temp(withSystemTempDirectory)
@@ -18,14 +18,11 @@ import Data.ContentStore.Digest
 {-# ANN module ("HLint: ignore Reduce duplication" :: String) #-}
 
 anyDigest :: Either CsError ObjectDigest -> Bool
-anyDigest (Right _) = True
-anyDigest _         = False
+anyDigest = isRight
 
 withContentStore :: ActionWith ContentStore -> IO ()
 withContentStore action = withTempDir $ \d ->
-    runExceptT (mkContentStore d) >>= \case
-        Left e     -> expectationFailure (show e)
-        Right repo -> action repo
+    runExceptT (mkContentStore d) >>= either (expectationFailure . show) action
 
 withTempDir :: ActionWith FilePath -> IO ()
 withTempDir action =
