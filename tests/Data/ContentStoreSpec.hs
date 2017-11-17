@@ -1,15 +1,18 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Data.ContentStoreSpec(spec)
  where
 
-import Control.Monad.Except(runExceptT)
-import Control.Monad.Trans.Resource(runResourceT)
-import Data.Either(isRight)
-import System.Directory(createDirectory)
-import System.FilePath.Posix((</>))
-import System.IO.Temp(withSystemTempDirectory)
-import Test.Hspec
+import           Control.Monad.Except(runExceptT)
+import           Control.Monad.Trans.Resource(runResourceT)
+import qualified Data.ByteString as BS
+import           Data.Either(isRight)
+import           Data.Maybe(fromJust)
+import           System.Directory(createDirectory, doesFileExist)
+import           System.FilePath.Posix((</>))
+import           System.IO.Temp(withSystemTempDirectory)
+import           Test.Hspec
 
 import Data.ContentStore
 import Data.ContentStore.Digest
@@ -73,6 +76,20 @@ contentStoreDigestSpec =
                 -- compare names.
                 digestName (contentStoreDigest cs) `shouldBe` "Blake2b_256"
 
+fetchFileSpec :: Spec
+fetchFileSpec =
+    describe "fetchFile" $
+        around withContentStore $
+            it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
+                let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
+                    od = fromJust $ fromByteString (contentStoreDigest cs) cksum
+                    dest = "yyyyyyyyyyyyyyy"
+
+                runExceptT (runResourceT $ fetchFile cs od dest) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
+                -- Verify the destination file was not created by conduit.  This can happen
+                -- if sinkFile is used instead of sinkFileCautious.
+                doesFileExist dest >>= (`shouldBe` False)
+
 storeFileSpec :: Spec
 storeFileSpec = do
     describe "storeFile" $
@@ -97,4 +114,5 @@ spec =
     describe "ContentStore" $ do
         contentStoreValidSpec
         contentStoreDigestSpec
+        fetchFileSpec
         storeFileSpec
