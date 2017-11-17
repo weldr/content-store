@@ -52,6 +52,7 @@ import           Control.Monad.Trans.Control(MonadBaseControl(..))
 import           Control.Monad.Trans.Resource(MonadResource, MonadThrow, ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import           Data.Conduit.Binary(sinkFileCautious)
 import           Data.Maybe(isNothing)
 import           System.Directory(canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import           System.FilePath((</>))
@@ -469,7 +470,7 @@ fetchFile :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, MonadResou
           -> FilePath       -- ^ The destination
           -> m ()
 fetchFile cs digest dest =
-    runConduitRes $ yield digest .| fetchByteStringC cs .| sinkFile dest
+    runConduitRes $ yield digest .| fetchByteStringC cs .| sinkFileCautious dest
 
 -- | Store an already existing file in the content store, returning its 'ObjectDigest'.  The original
 -- file will be left on disk.
