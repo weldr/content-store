@@ -4,8 +4,8 @@
 module Data.ContentStoreSpec(spec)
  where
 
-import           Control.Monad.Except(runExceptT)
-import           Control.Monad.Trans.Resource(runResourceT)
+import           Control.Monad.Except(ExceptT, runExceptT)
+import           Control.Monad.Trans.Resource(ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import           Data.Either(isRight)
 import           Data.Maybe(fromJust)
@@ -22,6 +22,9 @@ import Data.ContentStore.Digest
 
 anyDigest :: Either CsError ObjectDigest -> Bool
 anyDigest = isRight
+
+runCs :: ResourceT (ExceptT CsError IO) a -> IO (Either CsError a)
+runCs = runExceptT . runResourceT
 
 withContentStore :: ActionWith ContentStore -> IO ()
 withContentStore action = withTempDir $ \d ->
@@ -85,7 +88,7 @@ fetchFileSpec =
                     od = fromJust $ fromByteString (contentStoreDigest cs) cksum
                     dest = "yyyyyyyyyyyyyyy"
 
-                runExceptT (runResourceT $ fetchFile cs od dest) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
+                runCs (fetchFile cs od dest) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
                 -- Verify the destination file was not created by conduit.  This can happen
                 -- if sinkFile is used instead of sinkFileCautious.
                 doesFileExist dest >>= (`shouldBe` False)
@@ -95,16 +98,16 @@ storeFileSpec = do
     describe "storeFile" $
         around withContentStore $ do
             it "raises an IOException when trying to store a missing file" $ \cs ->
-                runExceptT (runResourceT $ storeFile cs "xxxxxxxxxxxxxxx") `shouldThrow` anyIOException
+                runCs (storeFile cs "xxxxxxxxxxxxxxx") `shouldThrow` anyIOException
 
             it "storing an existing file should return a digest" $ \cs ->
-                runExceptT (runResourceT $ storeFile cs __FILE__) >>= (`shouldSatisfy` anyDigest)
+                runCs (storeFile cs __FILE__) >>= (`shouldSatisfy` anyDigest)
 
     describe "storeFile duplicates" $
         around withContentStore $
             it "duplicate stores do not raise an error" $ \cs -> do
-                first <- runExceptT $ runResourceT $ storeFile cs __FILE__
-                second <- runExceptT $ runResourceT $ storeFile cs __FILE__
+                first  <- runCs $ storeFile cs __FILE__
+                second <- runCs $ storeFile cs __FILE__
 
                 first `shouldSatisfy` anyDigest
                 first `shouldBe` second
