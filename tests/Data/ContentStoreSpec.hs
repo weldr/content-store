@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Data.ContentStoreSpec(spec)
@@ -9,9 +10,10 @@ import           Control.Monad.Trans.Resource(ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import           Data.Either(isRight)
 import           Data.Maybe(fromJust)
-import           System.Directory(createDirectory, doesFileExist)
+import           System.Directory(createDirectory, doesFileExist, getTemporaryDirectory, removeFile)
 import           System.FilePath.Posix((</>))
-import           System.IO.Temp(withSystemTempDirectory)
+import           System.IO(Handle, hClose)
+import           System.IO.Temp(openTempFile, withSystemTempDirectory)
 import           Test.Hspec
 
 import Data.ContentStore
@@ -22,6 +24,11 @@ import Data.ContentStore.Digest
 
 anyDigest :: Either CsError ObjectDigest -> Bool
 anyDigest = isRight
+
+openSystemTempFile :: String -> IO (FilePath, Handle)
+openSystemTempFile template = do
+    dir <- getTemporaryDirectory
+    openTempFile dir template
 
 runCs :: ResourceT (ExceptT CsError IO) a -> IO (Either CsError a)
 runCs = runExceptT . runResourceT
@@ -81,7 +88,7 @@ contentStoreDigestSpec =
 
 fetchFileSpec :: Spec
 fetchFileSpec =
-    describe "fetchFile" $
+    describe "fetchFile" $ do
         around withContentStore $
             it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
                 let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
@@ -92,6 +99,25 @@ fetchFileSpec =
                 -- Verify the destination file was not created by conduit.  This can happen
                 -- if sinkFile is used instead of sinkFileCautious.
                 doesFileExist dest >>= (`shouldBe` False)
+
+        around withContentStore $
+            it "stored file and fetched file are the same" $ \cs ->
+                -- First, store the file.
+                runCs (storeFile cs __FILE__) >>= \case
+                    Left e       -> expectationFailure $ show e
+                    Right digest -> do
+                        (dest, h) <- openSystemTempFile "dest"
+                        hClose h
+
+                        -- Second, pull it back out of the store.
+                        runCs (fetchFile cs digest dest) >>= \case
+                            Left e  -> removeFile dest >> expectationFailure (show e)
+                            Right _ -> do
+                                -- Third, compare the two files.  They should be the same.
+                                bs1 <- BS.readFile __FILE__
+                                bs2 <- BS.readFile dest
+                                removeFile dest
+                                bs1 `shouldBe` bs2
 
 storeFileSpec :: Spec
 storeFileSpec = do
