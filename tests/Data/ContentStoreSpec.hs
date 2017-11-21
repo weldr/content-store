@@ -93,6 +93,24 @@ contentStoreDigestSpec =
                 -- compare names.
                 digestName (contentStoreDigest cs) `shouldBe` "Blake2b_256"
 
+fetchByteStringSpec :: Spec
+fetchByteStringSpec =
+    describe "fetchByteString" $ do
+        around withContentStore $
+            it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
+                let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
+                    od = fromJust $ fromByteString (contentStoreDigest cs) cksum
+
+                runCs (fetchByteString cs od) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
+
+        around (withStoredFile __FILE__) $
+            it "stored file and fetched file are the same" $ \(cs, digest) ->
+                runCs (fetchByteString cs digest) >>= \case
+                    Left e    -> expectationFailure (show e)
+                    Right bs2 -> do
+                        bs1 <- BS.readFile __FILE__
+                        bs1 `shouldBe` bs2
+
 fetchFileSpec :: Spec
 fetchFileSpec =
     describe "fetchFile" $ do
@@ -146,5 +164,6 @@ spec =
     describe "ContentStore" $ do
         contentStoreValidSpec
         contentStoreDigestSpec
+        fetchByteStringSpec
         fetchFileSpec
         storeFileSpec

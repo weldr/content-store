@@ -44,7 +44,7 @@ module Data.ContentStore(ContentStore,
 
 import           Conduit
 import           Control.Conditional(ifM, unlessM, whenM)
-import           Control.Monad((>=>), forM, forM_, join, void)
+import           Control.Monad((>=>), forM, forM_, void)
 import           Control.Monad.Base(MonadBase(..))
 import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
 import           Control.Monad.IO.Class(MonadIO, liftIO)
@@ -362,17 +362,6 @@ openContentStore fp = do
         Nothing -> throwError $ CsErrorUnsupportedHash (show algo)
         Just da -> return ContentStore { csRoot=path, csConfig=conf, csHash=da }
 
--- Like headC, but throws a CsError if the stream is empty.  You supply the error message.
-headCError :: MonadError CsError m => String -> Consumer a m a
-headCError s =
-    join $ maybe (throwError $ CsError s) return <$> headC
-
--- Like headC, but throws a CsErrorNoSuchObject if the stream is empty.  You supply the
--- digest of the object that's missing.
-headCMissing :: MonadError CsError m => ObjectDigest -> Consumer a m a
-headCMissing digest =
-    join $ maybe (throwError $ CsErrorNoSuchObject (show digest)) return <$> headC
-
 --
 -- STRICT BYTE STRING INTERFACE
 --
@@ -385,7 +374,7 @@ fetchByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, Mona
                 -> ObjectDigest     -- ^ The 'ObjectDigest' for some stored object.
                 -> m BS.ByteString
 fetchByteString cs digest =
-    runConduitRes (yield digest .| fetchByteStringC cs .| headCMissing digest)
+    fmap BS.concat (runConduitRes (yield digest .| fetchByteStringC cs .| sinkList))
 
 -- | Given an opened 'ContentStore' and a 'Conduit' of 'ObjectDigest's, load each one into
 -- a strict 'ByteString' and put it into the conduit.  This is useful for stream many
@@ -404,7 +393,9 @@ storeByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, Mona
                 -> BS.ByteString    -- ^ An object to be stored, as a strict 'ByteString'.
                 -> m ObjectDigest
 storeByteString cs bs =
-    runConduitRes (yield bs .| storeByteStringC cs .| headCError "Failed to store object")
+    runConduitRes (yield bs .| storeByteStringC cs .| headC) >>= \case
+        Nothing -> throwError $ CsError "Failed to store object"
+        Just d  -> return d
 
 -- | Like 'storeByteString', but read strict 'ByteString's from a 'Conduit' and put their
 -- 'ObjectDigest's into the conduit.  This is useful for storing many objects at a time,
@@ -428,7 +419,7 @@ fetchLazyByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, 
                     -> ObjectDigest
                     -> m LBS.ByteString
 fetchLazyByteString cs digest =
-    runConduitRes (yield digest .| fetchLazyByteStringC cs .| headCMissing digest)
+    fmap LBS.concat (runConduitRes (yield digest .| fetchLazyByteStringC cs .| sinkList))
 
 -- | Like 'fetchByteStringC', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 fetchLazyByteStringC :: (MonadError CsError m, MonadResource m) => ContentStore -> Conduit ObjectDigest m LBS.ByteString
@@ -441,7 +432,9 @@ storeLazyByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, 
                     -> LBS.ByteString
                     -> m ObjectDigest
 storeLazyByteString cs bs =
-    runConduitRes (yield bs .| storeLazyByteStringC cs .| headCError "Failed to store object")
+    runConduitRes (yield bs .| storeLazyByteStringC cs .| headC) >>= \case
+        Nothing -> throwError $ CsError "Failed to store object"
+        Just d  -> return d
 
 -- | Like 'storeByteStringC', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 storeLazyByteStringC :: (MonadError CsError m, MonadResource m) => ContentStore -> Conduit LBS.ByteString m ObjectDigest
