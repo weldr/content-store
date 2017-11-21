@@ -37,6 +37,13 @@ withContentStore :: ActionWith ContentStore -> IO ()
 withContentStore action = withTempDir $ \d ->
     runExceptT (mkContentStore d) >>= either (expectationFailure . show) action
 
+withStoredFile :: FilePath -> ActionWith (ContentStore, ObjectDigest) -> IO ()
+withStoredFile f action =
+    withContentStore $ \cs ->
+        runCs (storeFile cs f) >>= \case
+            Left e       -> expectationFailure $ show e
+            Right digest -> action (cs, digest)
+
 withTempDir :: ActionWith FilePath -> IO ()
 withTempDir action =
     withSystemTempDirectory "cs.repo" action
@@ -100,24 +107,20 @@ fetchFileSpec =
                 -- if sinkFile is used instead of sinkFileCautious.
                 doesFileExist dest >>= (`shouldBe` False)
 
-        around withContentStore $
-            it "stored file and fetched file are the same" $ \cs ->
-                -- First, store the file.
-                runCs (storeFile cs __FILE__) >>= \case
-                    Left e       -> expectationFailure $ show e
-                    Right digest -> do
-                        (dest, h) <- openSystemTempFile "dest"
-                        hClose h
+        around (withStoredFile __FILE__) $
+            it "stored file and fetched file are the same" $ \(cs, digest) -> do
+                (dest, h) <- openSystemTempFile "dest"
+                hClose h
 
-                        -- Second, pull it back out of the store.
-                        runCs (fetchFile cs digest dest) >>= \case
-                            Left e  -> removeFile dest >> expectationFailure (show e)
-                            Right _ -> do
-                                -- Third, compare the two files.  They should be the same.
-                                bs1 <- BS.readFile __FILE__
-                                bs2 <- BS.readFile dest
-                                removeFile dest
-                                bs1 `shouldBe` bs2
+                -- Second, pull it back out of the store.
+                runCs (fetchFile cs digest dest) >>= \case
+                    Left e  -> removeFile dest >> expectationFailure (show e)
+                    Right _ -> do
+                        -- Third, compare the two files.  They should be the same.
+                        bs1 <- BS.readFile __FILE__
+                        bs2 <- BS.readFile dest
+                        removeFile dest
+                        bs1 `shouldBe` bs2
 
 storeFileSpec :: Spec
 storeFileSpec = do
