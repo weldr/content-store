@@ -44,7 +44,7 @@ module Data.ContentStore(ContentStore,
 
 import           Conduit
 import           Control.Conditional(ifM, unlessM, whenM)
-import           Control.Monad((>=>), forM, forM_, void)
+import           Control.Monad(forM, forM_, void)
 import           Control.Monad.Base(MonadBase(..))
 import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
 import           Control.Monad.IO.Class(MonadIO, liftIO)
@@ -381,8 +381,10 @@ fetchByteString cs digest =
 -- objects out of the content store at a time, like with exporting an RPM or other package
 -- format.
 fetchByteStringC :: (MonadError CsError m, MonadResource m) => ContentStore -> Conduit ObjectDigest m BS.ByteString
-fetchByteStringC cs = awaitForever $
-    findObject cs >=> (\f -> sourceFile f .| maybeDecompress cs)
+fetchByteStringC cs = awaitForever $ \digest -> do
+    f <- findObject cs digest
+    contents <- sourceFile f .| maybeDecompress cs .| sinkList
+    yield $ BS.concat contents
 
 -- | Store some object into the content store and return its 'ObjectDigest'.  If an object
 -- with the same digest already exists in the content store, this is a duplicate.  Simply
@@ -423,8 +425,10 @@ fetchLazyByteString cs digest =
 
 -- | Like 'fetchByteStringC', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 fetchLazyByteStringC :: (MonadError CsError m, MonadResource m) => ContentStore -> Conduit ObjectDigest m LBS.ByteString
-fetchLazyByteStringC cs = awaitForever $
-    findObject cs >=> (\path -> sourceFile path .| maybeDecompress cs .| sinkLazy)
+fetchLazyByteStringC cs = awaitForever $ \digest -> do
+    f <- findObject cs digest
+    contents <- sourceFile f .| maybeDecompress cs .| sinkList
+    yield $ LBS.fromStrict $ BS.concat contents
 
 -- | Like 'storeByteString', but uses lazy 'Data.ByteString.Lazy.ByteString's instead.
 storeLazyByteString :: (MonadBaseControl IO m, MonadError CsError m, MonadIO m, MonadThrow m) =>

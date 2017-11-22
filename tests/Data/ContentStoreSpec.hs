@@ -5,9 +5,11 @@
 module Data.ContentStoreSpec(spec)
  where
 
+import           Conduit((.|), runConduitRes, sinkList, yield)
 import           Control.Monad.Except(ExceptT, runExceptT)
 import           Control.Monad.Trans.Resource(ResourceT, runResourceT)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import           Data.Either(isRight)
 import           Data.Maybe(fromJust)
 import           System.Directory(createDirectory, doesFileExist, getTemporaryDirectory, removeFile)
@@ -32,6 +34,8 @@ openSystemTempFile template = do
 
 runCs :: ResourceT (ExceptT CsError IO) a -> IO (Either CsError a)
 runCs = runExceptT . runResourceT
+
+runCsConduit = runExceptT . runConduitRes
 
 withContentStore :: ActionWith ContentStore -> IO ()
 withContentStore action = withTempDir $ \d ->
@@ -109,7 +113,93 @@ fetchByteStringSpec =
                     Left e    -> expectationFailure (show e)
                     Right bs2 -> do
                         bs1 <- BS.readFile __FILE__
-                        bs1 `shouldBe` bs2
+                        bs2 `shouldBe` bs1
+
+fetchByteStringCSpec :: Spec
+fetchByteStringCSpec =
+    describe "fetchByteStringC" $ do
+        around withContentStore $
+            it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
+                let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
+                    od = fromJust $ fromByteString (contentStoreDigest cs) cksum
+
+                runCsConduit (yield od .| fetchByteStringC cs .| sinkList) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
+
+        around (withStoredFile __FILE__) $
+            it "stored file and fetched file are the same" $ \(cs, digest) ->
+                runCsConduit (yield digest .| fetchByteStringC cs .| sinkList) >>= \case
+                    Right [bs2] -> do
+                        bs1 <- BS.readFile __FILE__
+                        bs2 `shouldBe` bs1
+                    Right l -> expectationFailure $ "fetchByteStringC returned " ++ show (length l) ++ " elements"
+                    Left e  -> expectationFailure (show e)
+
+storeByteStringSpec :: Spec
+storeByteStringSpec =
+    describe "storeByteString" $ do
+        around withContentStore $
+            it "storing a bytestring should return a digest" $ \cs ->
+                runCs (storeByteString cs "The spice must flow.") >>= (`shouldSatisfy` anyDigest)
+
+        around withContentStore $
+            it "duplicate stores do not raise an error" $ \cs -> do
+                first  <- runCs $ storeByteString cs "blahblahblah"
+                second <- runCs $ storeByteString cs "blahblahblah"
+
+                first `shouldSatisfy` anyDigest
+                first `shouldBe` second
+
+fetchLazyByteStringSpec :: Spec
+fetchLazyByteStringSpec =
+    describe "fetchLazyByteString" $ do
+        around withContentStore $
+            it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
+                let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
+                    od = fromJust $ fromByteString (contentStoreDigest cs) cksum
+
+                runCs (fetchLazyByteString cs od) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
+
+        around (withStoredFile __FILE__) $
+            it "stored file and fetched file are the same" $ \(cs, digest) ->
+                runCs (fetchLazyByteString cs digest) >>= \case
+                    Left e    -> expectationFailure (show e)
+                    Right bs2 -> do
+                        bs1 <- LBS.readFile __FILE__
+                        bs2 `shouldBe` bs1
+
+fetchLazyByteStringCSpec :: Spec
+fetchLazyByteStringCSpec =
+    describe "fetchLazyByteStringC" $ do
+        around withContentStore $
+            it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
+                let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
+                    od = fromJust $ fromByteString (contentStoreDigest cs) cksum
+
+                runCsConduit (yield od .| fetchLazyByteStringC cs .| sinkList) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
+
+        around (withStoredFile __FILE__) $
+            it "stored file and fetched file are the same" $ \(cs, digest) ->
+                runCsConduit (yield digest .| fetchLazyByteStringC cs .| sinkList) >>= \case
+                    Right [bs2] -> do
+                        bs1 <- LBS.readFile __FILE__
+                        bs2 `shouldBe` bs1
+                    Right _ -> expectationFailure "fetchByteStringC returned more than one element"
+                    Left e  -> expectationFailure (show e)
+
+storeLazyByteStringSpec :: Spec
+storeLazyByteStringSpec =
+    describe "storeLazyByteString" $ do
+        around withContentStore $
+            it "storing a lazy bytestring should return a digest" $ \cs ->
+                runCs (storeLazyByteString cs "The spice must flow.") >>= (`shouldSatisfy` anyDigest)
+
+        around withContentStore $
+            it "duplicate stores do not raise an error" $ \cs -> do
+                first  <- runCs $ storeLazyByteString cs "blahblahblah"
+                second <- runCs $ storeLazyByteString cs "blahblahblah"
+
+                first `shouldSatisfy` anyDigest
+                first `shouldBe` second
 
 fetchFileSpec :: Spec
 fetchFileSpec =
@@ -138,7 +228,7 @@ fetchFileSpec =
                         bs1 <- BS.readFile __FILE__
                         bs2 <- BS.readFile dest
                         removeFile dest
-                        bs1 `shouldBe` bs2
+                        bs2 `shouldBe` bs1
 
 storeFileSpec :: Spec
 storeFileSpec = do
@@ -165,5 +255,10 @@ spec =
         contentStoreValidSpec
         contentStoreDigestSpec
         fetchByteStringSpec
+        fetchByteStringCSpec
+        storeByteStringSpec
+        fetchLazyByteStringSpec
+        fetchLazyByteStringCSpec
+        storeLazyByteStringSpec
         fetchFileSpec
         storeFileSpec
