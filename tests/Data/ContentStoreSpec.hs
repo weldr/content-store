@@ -252,13 +252,20 @@ storeFileSpec = do
 spec :: Spec
 spec =
     describe "ContentStore" $ do
-        contentStoreValidSpec
         contentStoreDigestSpec
+        contentStoreValidSpec
         fetchByteStringSpec
         fetchByteStringCSpec
-        storeByteStringSpec
+        fetchFileSpec
         fetchLazyByteStringSpec
         fetchLazyByteStringCSpec
-        storeLazyByteStringSpec
-        fetchFileSpec
+        -- mkContentStoreSpec
+        -- openContentStoreSpec
+        storeByteStringSpec
+        -- storeByteStringCSpec
+        -- storeByteStringSinkSpec
+        -- storeDirectorySpec
         storeFileSpec
+        storeLazyByteStringSpec
+        -- storeLazyByteStringCSpec
+        -- storeLazyByteStringSinkSpec
