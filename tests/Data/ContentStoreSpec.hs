@@ -5,7 +5,7 @@
 module Data.ContentStoreSpec(spec)
  where
 
-import           Conduit((.|), runConduitRes, sinkList, yield)
+import           Conduit((.|), runConduitRes, sinkList, yield, yieldMany)
 import           Control.Monad.Except(ExceptT, runExceptT)
 import           Control.Monad.Trans.Resource(ResourceT, runResourceT)
 import qualified Data.ByteString as BS
@@ -134,6 +134,12 @@ fetchByteStringCSpec =
                     Right l -> expectationFailure $ "fetchByteStringC returned " ++ show (length l) ++ " elements"
                     Left e  -> expectationFailure (show e)
 
+        around (withStoredFile __FILE__) $
+            it "requesting two digests returns two files" $ \(cs, digest) ->
+                runCsConduit (yieldMany [digest, digest] .| fetchByteStringC cs .| sinkList) >>= \case
+                    Left e    -> expectationFailure (show e)
+                    Right lst -> length lst `shouldBe` 2
+
 storeByteStringSpec :: Spec
 storeByteStringSpec =
     describe "storeByteString" $ do
@@ -185,6 +191,12 @@ fetchLazyByteStringCSpec =
                         bs2 `shouldBe` bs1
                     Right _ -> expectationFailure "fetchByteStringC returned more than one element"
                     Left e  -> expectationFailure (show e)
+
+        around (withStoredFile __FILE__) $
+            it "requesting two digests returns two files" $ \(cs, digest) ->
+                runCsConduit (yieldMany [digest, digest] .| fetchLazyByteStringC cs .| sinkList) >>= \case
+                    Left e    -> expectationFailure (show e)
+                    Right lst -> length lst `shouldBe` 2
 
 storeLazyByteStringSpec :: Spec
 storeLazyByteStringSpec =
