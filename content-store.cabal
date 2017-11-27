@@ -59,6 +59,7 @@ test-suite spec
   hs-source-dirs: tests
   build-depends:    base == 4.*,
                     bytestring >= 0.10 && < 0.11,
+                    conduit >= 1.0.11 && < 1.3,
                     conduit-combinators >= 1.1.0 && < 1.2,
                     directory >= 1.3.0.0 && < 1.4.0.0,
                     filepath >= 1.4.1.1 && < 1.5.0.0,

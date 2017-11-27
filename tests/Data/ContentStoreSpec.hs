@@ -155,6 +155,24 @@ storeByteStringSpec =
                 first `shouldSatisfy` anyDigest
                 first `shouldBe` second
 
+storeByteStringCSpec :: Spec
+storeByteStringCSpec =
+    describe "storeByteStringC" $ do
+        around withContentStore $
+            it "storing a bytestring should return a digest" $ \cs ->
+                runCsConduit (yield "The spice must flow." .| storeByteStringC cs .| sinkList) >>= \case
+                    Left e    -> expectationFailure (show e)
+                    Right lst -> length lst `shouldBe` 1
+
+        around withContentStore $
+            it "storing multiple bytestrings should return multiple digests" $ \cs -> do
+                let strs = ["I must not fear.",
+                            "Fear is the mind-killer.",
+                            "Fear is the little-death that brings total obliteration."]
+                runCsConduit (yieldMany strs .| storeByteStringC cs .| sinkList) >>= \case
+                    Left e    -> expectationFailure (show e)
+                    Right lst -> length lst `shouldBe` 3
+
 fetchLazyByteStringSpec :: Spec
 fetchLazyByteStringSpec =
     describe "fetchLazyByteString" $ do
@@ -212,6 +230,24 @@ storeLazyByteStringSpec =
 
                 first `shouldSatisfy` anyDigest
                 first `shouldBe` second
+
+storeLazyByteStringCSpec :: Spec
+storeLazyByteStringCSpec =
+    describe "storeLazyByteStringC" $ do
+        around withContentStore $
+            it "storing a lazy bytestring should return a digest" $ \cs ->
+                runCsConduit (yield "The spice must flow." .| storeLazyByteStringC cs .| sinkList) >>= \case
+                    Left e    -> expectationFailure (show e)
+                    Right lst -> length lst `shouldBe` 1
+
+        around withContentStore $
+            it "storing multiple lazy bytestrings should return multiple digests" $ \cs -> do
+                let strs = ["I must not fear.",
+                            "Fear is the mind-killer.",
+                            "Fear is the little-death that brings total obliteration."]
+                runCsConduit (yieldMany strs .| storeLazyByteStringC cs .| sinkList) >>= \case
+                    Left e    -> expectationFailure (show e)
+                    Right lst -> length lst `shouldBe` 3
 
 fetchFileSpec :: Spec
 fetchFileSpec =
@@ -274,10 +310,10 @@ spec =
         -- mkContentStoreSpec
         -- openContentStoreSpec
         storeByteStringSpec
-        -- storeByteStringCSpec
+        storeByteStringCSpec
         -- storeByteStringSinkSpec
         -- storeDirectorySpec
         storeFileSpec
         storeLazyByteStringSpec
-        -- storeLazyByteStringCSpec
+        storeLazyByteStringCSpec
         -- storeLazyByteStringSinkSpec
