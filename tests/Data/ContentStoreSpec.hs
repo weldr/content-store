@@ -5,13 +5,14 @@
 module Data.ContentStoreSpec(spec)
  where
 
-import           Conduit((.|), runConduitRes, sinkList, yield, yieldMany)
+import           Conduit((.|), ConduitM, runConduitRes, sinkList, yield, yieldMany)
 import           Control.Monad.Except(ExceptT, runExceptT)
 import           Control.Monad.Trans.Resource(ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import           Data.Either(isRight)
 import           Data.Maybe(fromJust)
+import           Data.Void(Void)
 import           System.Directory(createDirectory, doesFileExist, getTemporaryDirectory, removeFile)
 import           System.FilePath.Posix((</>))
 import           System.IO(Handle, hClose)
@@ -24,6 +25,9 @@ import Data.ContentStore.Digest
 {-# ANN module ("HLint: ignore Eta reduce" :: String) #-}
 {-# ANN module ("HLint: ignore Reduce duplication" :: String) #-}
 
+invalidChecksum :: BS.ByteString
+invalidChecksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6"
+
 anyDigest :: Either CsError ObjectDigest -> Bool
 anyDigest = isRight
 
@@ -35,6 +39,7 @@ openSystemTempFile template = do
 runCs :: ResourceT (ExceptT CsError IO) a -> IO (Either CsError a)
 runCs = runExceptT . runResourceT
 
+runCsConduit :: ConduitM () Void (ResourceT (ExceptT CsError IO)) a -> IO (Either CsError a)
 runCsConduit = runExceptT . runConduitRes
 
 withContentStore :: ActionWith ContentStore -> IO ()
@@ -102,8 +107,7 @@ fetchByteStringSpec =
     describe "fetchByteString" $ do
         around withContentStore $
             it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
-                let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
-                    od = fromJust $ fromByteString (contentStoreDigest cs) cksum
+                let od = fromJust $ fromByteString (contentStoreDigest cs) invalidChecksum
 
                 runCs (fetchByteString cs od) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
 
@@ -120,8 +124,7 @@ fetchByteStringCSpec =
     describe "fetchByteStringC" $ do
         around withContentStore $
             it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
-                let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
-                    od = fromJust $ fromByteString (contentStoreDigest cs) cksum
+                let od = fromJust $ fromByteString (contentStoreDigest cs) invalidChecksum
 
                 runCsConduit (yield od .| fetchByteStringC cs .| sinkList) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
 
@@ -188,8 +191,7 @@ fetchLazyByteStringSpec =
     describe "fetchLazyByteString" $ do
         around withContentStore $
             it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
-                let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
-                    od = fromJust $ fromByteString (contentStoreDigest cs) cksum
+                let od = fromJust $ fromByteString (contentStoreDigest cs) invalidChecksum
 
                 runCs (fetchLazyByteString cs od) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
 
@@ -206,8 +208,7 @@ fetchLazyByteStringCSpec =
     describe "fetchLazyByteStringC" $ do
         around withContentStore $
             it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
-                let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
-                    od = fromJust $ fromByteString (contentStoreDigest cs) cksum
+                let od = fromJust $ fromByteString (contentStoreDigest cs) invalidChecksum
 
                 runCsConduit (yield od .| fetchLazyByteStringC cs .| sinkList) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
 
@@ -274,8 +275,7 @@ fetchFileSpec =
     describe "fetchFile" $ do
         around withContentStore $
             it "raises CsErrorNoSuchObject when the object doesn't exist" $ \cs -> do
-                let cksum = "\x82\xe4\x69\x8a\x1e\xbe\x82\xed\xae\xc8\xe8\xa6\xdc\xf1\x8d\x57\xbb\x5a\xc6\x71\x8b\x6b\xf2\xbb\xc3\x8a\x00\xda\x2e\x29\x34\xe6" :: BS.ByteString
-                    od = fromJust $ fromByteString (contentStoreDigest cs) cksum
+                let od = fromJust $ fromByteString (contentStoreDigest cs) invalidChecksum
                     dest = "yyyyyyyyyyyyyyy"
 
                 runCs (fetchFile cs od dest) >>= (`shouldBe` Left (CsErrorNoSuchObject $ toHex od))
