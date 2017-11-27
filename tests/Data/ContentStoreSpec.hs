@@ -173,6 +173,16 @@ storeByteStringCSpec =
                     Left e    -> expectationFailure (show e)
                     Right lst -> length lst `shouldBe` 3
 
+storeByteStringSinkSpec :: Spec
+storeByteStringSinkSpec =
+    describe "storeByteStringSink" $
+        around withContentStore $
+            it "storing multiple bytestrings should return a single digest" $ \cs -> do
+                let strs = ["I must not fear.",
+                            "Fear is the mind-killer.",
+                            "Fear is the little-death that brings total obliteration."]
+                runCsConduit (yieldMany strs .| storeByteStringSink cs) >>= (`shouldSatisfy` anyDigest)
+
 fetchLazyByteStringSpec :: Spec
 fetchLazyByteStringSpec =
     describe "fetchLazyByteString" $ do
@@ -249,6 +259,16 @@ storeLazyByteStringCSpec =
                     Left e    -> expectationFailure (show e)
                     Right lst -> length lst `shouldBe` 3
 
+storeLazyByteStringSinkSpec :: Spec
+storeLazyByteStringSinkSpec =
+    describe "storeLazyByteStringSink" $
+        around withContentStore $
+            it "storing multiple bytestrings should return a single digest" $ \cs -> do
+                let strs = ["I must not fear.",
+                            "Fear is the mind-killer.",
+                            "Fear is the little-death that brings total obliteration."]
+                runCsConduit (yieldMany strs .| storeLazyByteStringSink cs) >>= (`shouldSatisfy` anyDigest)
+
 fetchFileSpec :: Spec
 fetchFileSpec =
     describe "fetchFile" $ do
@@ -311,9 +331,9 @@ spec =
         -- openContentStoreSpec
         storeByteStringSpec
         storeByteStringCSpec
-        -- storeByteStringSinkSpec
+        storeByteStringSinkSpec
         -- storeDirectorySpec
         storeFileSpec
         storeLazyByteStringSpec
         storeLazyByteStringCSpec
-        -- storeLazyByteStringSinkSpec
+        storeLazyByteStringSinkSpec
