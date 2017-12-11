@@ -84,5 +84,7 @@ readConfig path = do
 writeConfig :: FilePath -> Config -> IO ()
 writeConfig path Config{..} = TIO.writeFile path configText
  where
-    configText = T.concat ["compressed = ", if confCompressed then "true" else "false", "\n",
+    configText = T.concat ["[core]",
+                           "repo_version = 1",
+                           "compressed = ", if confCompressed then "true" else "false", "\n",
                            "hash = \"", confHash, "\"\n"]
