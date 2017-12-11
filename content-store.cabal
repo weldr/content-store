@@ -15,6 +15,7 @@ build-type:          Simple
 cabal-version:       >= 1.10
 
 extra-source-files:  ChangeLog.md,
+                     Makefile
                      tests/*.hs,
                      tests/Data/*.hs,
                      tests/Data/ContentStore/*.hs
