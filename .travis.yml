@@ -6,6 +6,8 @@ cache:
   directories:
     - ~/.ghc
     - ~/.cabal
+    - $TRAVIS_BUILD_DIR/.cabal-sandbox/
+    - $TRAVIS_BUILD_DIR/cabal.sandbox.config
 
 before_install:
   - wget https://haskell.org/platform/download/8.0.2/haskell-platform-8.0.2-unknown-posix--minimal-x86_64.tar.gz
