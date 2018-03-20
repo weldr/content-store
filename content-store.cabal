@@ -9,7 +9,7 @@ homepage:            https://github.com/weldr/content-store
 category:            System
 author:              Chris Lumens
 maintainer:          clumens@redhat.com
-license:             LGPL
+license:             LGPL-2.1
 license-file:        LICENSE
 build-type:          Simple
 cabal-version:       >= 1.10
