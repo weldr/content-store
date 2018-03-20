@@ -1,3 +1,8 @@
+## 0.2.1
+
+* Allow newer versions of aeson, conduit, conduit-combinators, conduit-extra,
+  and lzma-conduit.
+
 ## 0.2.0
 
 * Added lots of test cases.
