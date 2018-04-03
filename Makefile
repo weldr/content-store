@@ -1,5 +1,6 @@
 sandbox:
-	[ -d .cabal-sandbox ] || cabal sandbox init && cabal update
+	[ -d .cabal-sandbox ] && cabal sandbox delete && cabal clean
+	cabal sandbox init && cabal update
 
 hlint: sandbox
 	hlint .
