@@ -64,6 +64,8 @@ test-suite spec
                     conduit-combinators >= 1.1.0 && < 1.3,
                     directory >= 1.3.0.0 && < 1.4.0.0,
                     filepath >= 1.4.1.1 && < 1.5.0.0,
+                    hlint,
+                    hpc-coveralls,
                     hspec == 2.*,
                     memory >= 0.14.3 && < 0.15.0,
                     mtl >= 2.2.1 && < 2.3,
