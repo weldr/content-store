@@ -44,11 +44,12 @@ module Data.ContentStore(ContentStore,
 
 import           Conduit
 import           Control.Conditional(ifM, unlessM, whenM)
+import           Control.Exception(bracket)
 import           Control.Monad(forM, forM_, void)
 import           Control.Monad.Base(MonadBase(..))
 import           Control.Monad.Except(ExceptT, MonadError, catchError, runExceptT, throwError)
 import           Control.Monad.IO.Class(MonadIO, liftIO)
-import           Control.Monad.Trans.Control(MonadBaseControl(..))
+import           Control.Monad.Trans.Control(MonadBaseControl(..), liftBaseOp)
 import           Control.Monad.Trans.Resource(MonadResource, MonadThrow, ResourceT, runResourceT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -253,23 +254,16 @@ fullLock = (WriteLock, AbsoluteSeek, 0, 0)
 fullUnlock :: FileLock
 fullUnlock = (Unlock, AbsoluteSeek, 0, 0)
 
-withGlobalLock :: MonadIO m => FilePath -> m a -> m a
+withGlobalLock :: (MonadBaseControl IO m, MonadIO m) => FilePath -> m a -> m a
 withGlobalLock csRoot action = do
     let lockFile = csRoot </> "lock" </> "lockfile"
 
-    -- Create or open the lock file
-    fd <- liftIO $ openFd lockFile WriteOnly (Just 0o644) defaultFileFlags
+    liftBaseOp (bracket (acquire lockFile) release)
+               (\fd -> liftIO (waitToSetLock fd fullLock) >> action)
+ where
+    acquire fn = openFd fn WriteOnly (Just 0o644) defaultFileFlags
 
-    -- Acquire the lock
-    liftIO $ waitToSetLock fd fullLock
-
-    -- Perform the action
-    ret <- action
-
-    -- Release the lock
-    liftIO $ setLock fd fullUnlock >> closeFd fd
-
-    return ret
+    release fd = setLock fd fullUnlock >> closeFd fd
 
 -- Cleanup any stale tmp files. These are any files in the tmp directory
 -- that are not locked, while the global lock is held.
