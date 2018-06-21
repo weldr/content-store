@@ -396,7 +396,7 @@ storeByteString cs bs =
 -- | Like 'storeByteString', but read strict 'ByteString's from a 'Conduit' and put their
 -- 'ObjectDigest's into the conduit.  This is useful for storing many objects at a time,
 -- like with importing an RPM or other package format.
-storeByteStringC :: (MonadError CsError m, MonadResource m) => ContentStore -> Conduit BS.ByteString m ObjectDigest
+storeByteStringC :: MonadResource m => ContentStore -> Conduit BS.ByteString m ObjectDigest
 storeByteStringC cs = doStore cs (digestByteString $ csHash cs)
 
 -- | Read in a 'Conduit' of strict 'ByteString's, store the stream into an object in an
