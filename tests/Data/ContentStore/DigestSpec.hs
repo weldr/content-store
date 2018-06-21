@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Data.ContentStore.DigestSpec(spec) where
 
 import Test.Hspec
