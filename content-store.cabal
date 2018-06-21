@@ -54,6 +54,11 @@ library
 
   default-language:  Haskell2010
 
+  default-extensions: LambdaCase,
+                      MultiWayIf,
+                      OverloadedStrings,
+                      RecordWildCards
+
   ghc-options:       -Wall
                      -Wincomplete-uni-patterns
                      -Wincomplete-record-updates
@@ -83,6 +88,11 @@ test-suite spec
                     content-store
 
   default-language: Haskell2010
+
+  default-extensions: LambdaCase,
+                      MultiWayIf,
+                      OverloadedStrings,
+                      RecordWildCards
 
   ghc-options:      -Wall
                     -Wincomplete-uni-patterns
