@@ -53,7 +53,12 @@ library
                      unix >= 2.7.2.1 && < 2.8.0.0
 
   default-language:  Haskell2010
+
   ghc-options:       -Wall
+                     -Wincomplete-uni-patterns
+                     -Wincomplete-record-updates
+                     -Wredundant-constraints
+                     -Wcompat
 
 test-suite spec
   type:             exitcode-stdio-1.0
@@ -78,4 +83,9 @@ test-suite spec
                     content-store
 
   default-language: Haskell2010
-  ghc-options: -Wall
+
+  ghc-options:      -Wall
+                    -Wincomplete-uni-patterns
+                    -Wincomplete-record-updates
+                    -Wredundant-constraints
+                    -Wcompat
