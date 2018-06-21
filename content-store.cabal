@@ -55,9 +55,14 @@ library
   ghc-options:       -Wall
 
 test-suite spec
-  type: exitcode-stdio-1.0
-  main-is: Spec.hs
-  hs-source-dirs: tests
+  type:             exitcode-stdio-1.0
+
+  main-is:          Spec.hs
+  hs-source-dirs:   tests
+
+  other-modules:    Data.ContentStore.DigestSpec,
+                    Data.ContentStoreSpec
+
   build-depends:    base == 4.*,
                     bytestring >= 0.10 && < 0.11,
                     conduit >= 1.0.11 && < 1.4,
