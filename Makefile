@@ -18,6 +18,7 @@ tests: sandbox
 dist: sandbox
 	cabal configure
 	cabal sdist
+	ln dist/content-store-*.tar.gz dist/content-store-latest.tar.gz
 
 ci: tests hlint
 
